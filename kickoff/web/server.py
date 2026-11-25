@@ -274,6 +274,33 @@ def lineup_action(w, b: dict) -> tuple[bool, str | None]:
     return False, "Невідома дія."
 
 
+def dossier(w, opp, rows) -> dict:
+    lines_me, lines_op = line_ratings(w, w.club), line_ratings(w, opp)
+    squad = w.squad(opp.id)
+    keys = sorted(squad, key=lambda p: -(p.skill + p.goals * 1.5))[:3]
+    scorer = max(squad, key=lambda p: (p.goals, p.skill), default=None)
+    row = next((r for r in rows if r["club"] == opp.id), None)
+    h2h = [r for r in w.results if {r.home, r.away} == {w.club_id, opp.id}][-3:]
+    tips = []
+    if lines_op["FW"] >= lines_me["DF"] + 3:
+        tips.append("Їхня атака сильніша за наш захист. Оборонний стиль або 5 захисників допоможуть.")
+    if lines_me["FW"] >= lines_op["DF"] + 3:
+        tips.append("Їхній захист вразливий. Атакувальний стиль може дати багато моментів.")
+    if lines_op["MF"] >= lines_me["MF"] + 3:
+        tips.append("Вони сильніші в центрі поля. Пресинг або контратаки нейтралізують перевагу.")
+    if not tips:
+        tips.append("Сили приблизно рівні. Вирішить форма і зіграність.")
+    injured = sum(1 for p in squad if not p.available)
+    return {
+        "formation": opp.formation, "style": opp.style, "lines": lines_op, "mine": lines_me,
+        "keys": [{"name": p.name, "role": p.role, "skill": p.skill, "flag": flag(p.nation), "goals": p.goals} for p in keys],
+        "scorer": {"name": scorer.name, "goals": scorer.goals} if scorer and scorer.goals else None,
+        "gf": row["gf"] if row else 0, "ga": row["ga"] if row else 0, "played": row["p"] if row else 0,
+        "h2h": [{"home": w.clubs[r.home].name, "away": w.clubs[r.away].name, "hg": r.hg, "ag": r.ag} for r in h2h],
+        "tips": tips, "missing": injured,
+    }
+
+
 def match_preview(w) -> dict:
     nf = next_fixture(w)
     if not nf:
@@ -295,6 +322,7 @@ def match_preview(w) -> dict:
         "isHome": h == w.club_id, "formation": w.club.formation, "style": w.club.style, "styles": STYLES,
         "lineup": [{"slot": s, **player_json(w, p)} for s, p in lu], "unavailable": unavailable, "last": last,
         "xi": {k: v for k, v in lineup_json(w).items() if k in ("slots", "captain", "chemistry", "rating")},
+        "dossier": dossier(w, w.clubs[a if h == w.club_id else h], rows),
         "seasonOver": False,
     }
 

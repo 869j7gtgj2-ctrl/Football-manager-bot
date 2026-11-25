@@ -391,6 +391,25 @@ function tacticsView() {
   <div class="section-title">Стиль гри</div><div class="grid2 pad">${Object.entries(tc.styles).map(([k, v]) => `<button class="opt tap ${k === tc.style ? 'on' : ''}" onclick="setTac({style:'${k}'})"><b>${esc(v)}</b><span>${styleDesc[k]}</span></button>`).join('')}</div>
   <div class="section-title">Тренування <small>база ${S.team.trainingLevel}/5</small></div><div class="grid2 pad">${Object.entries(tc.trainings).map(([k, v]) => `<button class="opt tap ${k === tc.training ? 'on' : ''}" onclick="setTac({training:'${k}'})"><b>${esc(v)}</b><span>${trDesc[k]}</span></button>`).join('')}</div>`;
 }
+/* ---------------- opponent dossier */
+function dossierHTML(m) {
+  const d = m.dossier; if (!d) return '';
+  const opp = m.isHome ? m.away : m.home;
+  const cmp = ['GK', 'DF', 'MF', 'FW'].map(k => { const a = d.mine[k], b = d.lines[k], t = a + b || 1;
+    return `<div class="dz-row"><b class="${a >= b ? 'up' : ''}">${a}</b><div class="dz-bars"><i style="width:${a / t * 100}%"></i><i></i></div><b class="${b > a ? 'dn' : ''}">${b}</b><span>${LINE_UA[k]}</span></div>`; }).join('');
+  return `<div class="section-title">Досьє суперника <small>${esc(opp.name)}</small></div>
+  <div class="card m16 dz">
+    <div class="dz-head">${crest(opp, 46)}<div class="grow"><b class="h" style="font-size:20px;text-transform:uppercase">${esc(opp.name)}</b>
+      <div class="muted" style="font-size:12.5px;font-weight:700">${d.formation} · ${esc(m.styles[d.style] || '')}${d.played ? ` · голи ${d.gf}:${d.ga} за ${d.played} матч.` : ""}</div></div></div>
+    <div class="dz-legend"><span>Ми</span><span>Вони</span></div>${cmp}
+    <div class="cp-sec" style="margin-top:14px">Ключові гравці</div>
+    ${d.keys.map(p => `<div class="cp-star"><div class="cp-ovr ${sc(p.skill)}">${p.skill}</div><div class="grow"><b class="ellipsis" style="display:block">${p.flag} ${esc(p.name)}</b>
+      <span class="muted">${p.goals ? `⚽ ${p.goals} голів` : 'Небезпечний гравець'}</span></div><span class="role">${esc(p.role)}</span></div>`).join('')}
+    ${d.h2h.length ? `<div class="cp-sec" style="margin-top:14px">Особисті зустрічі</div><div class="dz-h2h">${d.h2h.map(r => `<span>${esc(r.home)} <b>${r.hg}:${r.ag}</b> ${esc(r.away)}</span>`).join('')}</div>` : ''}
+    <div class="dz-tip">🧠 <b>Порада асистента:</b> ${d.tips.map(esc).join(' ')}${d.missing ? ` У суперника ${d.missing} гравц. не зіграють.` : ''}</div>
+  </div>`;
+}
+
 /* ---------------- lineup editor */
 const fitCol = f => f >= 85 ? '#3fd98a' : f >= 65 ? '#e3b54a' : '#e5484d';
 function pcCard(p, opts = {}) {
@@ -495,6 +514,7 @@ function matchTab() {
     <button class="btn ghost small tap" style="width:100%;margin-top:10px" onclick="playMatch(true)">⏩ Одразу результат</button></div>`;
   if (m.last) html += `<div class="card m16 row" style="padding:12px 16px;margin-top:12px;justify-content:center;gap:12px"><span class="muted" style="font-weight:800;font-size:12px">МИНУЛИЙ:</span>
     ${crest(m.last.home, 28)}<b class="big-num">${m.last.hg}:${m.last.ag}</b>${crest(m.last.away, 28)}</div>`;
+  html += dossierHTML(m);
   html += `<div class="section-title">Стартовий склад <small>${m.formation} · ${esc(m.styles[m.style])}</small></div><div class="field" onclick="S.tab='team';S.sub='xi';S.lineup=null;draw()">${FIELD_LINES}${m.xi.slots.map(sl => pcCard(sl.player, { pos: `left:${sl.x}%;top:${sl.y}%`, slot: sl.role, eff: sl.player ? sl.player.eff : null, cap: sl.player && sl.player.id === m.xi.captain })).join('')}</div>
     <div class="muted" style="margin:8px 16px 0;font-size:12px;font-weight:700">Зіграність ${m.xi.chemistry}% · торкнись поля, щоб змінити склад</div>`;
   if (m.unavailable.length) html += `<div class="section-title">Не зіграють</div><div class="card m16">${m.unavailable.map(playerRow).join('')}</div>`;
