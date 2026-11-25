@@ -100,7 +100,7 @@ def expected_goals(a: dict, b: dict, home: bool) -> tuple[float, float]:
     poss = a["mid"] ** 2.2 / (a["mid"] ** 2.2 + b["mid"] ** 2.2)
     attack = a["att"] * 0.75 + a["mid"] * 0.25
     defence = b["def"] * 0.72 + b["gk"] * 0.28
-    xg = 1.25 * (attack / defence) ** 3 * (0.55 + 0.9 * poss) * (1.12 if home else 0.93)
+    xg = 1.25 * (attack / defence) ** 2.6 * (0.55 + 0.9 * poss) * (1.12 if home else 0.93)
     return max(0.15, min(4.5, xg)), poss
 
 

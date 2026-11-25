@@ -7,6 +7,7 @@ from typing import Optional
 
 POSITIONS = ("GK", "DF", "MF", "FW")
 POS_UA = {"GK": "ВР", "DF": "ЗХ", "MF": "ПЗ", "FW": "НП"}
+POS_NAME = {"GK": "Воротарі", "DF": "Захисники", "MF": "Півзахисники", "FW": "Нападники"}
 
 FORMATIONS = {
     "4-4-2": (4, 4, 2),
@@ -64,6 +65,8 @@ class Player:
     youth: bool = False
     career_goals: int = 0
     career_apps: int = 0
+    real: bool = False
+    number: int = 0
 
     @property
     def avg_rating(self) -> float:
@@ -74,7 +77,7 @@ class Player:
         return self.injured == 0 and self.suspended == 0
 
     def value(self) -> int:
-        base = 40_000 * math.exp((self.skill - 50) / 7.0)
+        base = 100_000 * math.exp((self.skill - 50) / 6.0)
         gap = max(0, self.potential - self.skill)
         if self.age <= 23:
             base *= 1 + gap * 0.035
@@ -86,10 +89,12 @@ class Player:
             base *= 0.85
         if self.pos == "GK":
             base *= 0.8
+        if base >= 1_000_000:
+            return int(round(base / 100_000.0) * 100_000)
         return int(round(base / 5000.0) * 5000) or 5000
 
     def fair_wage(self) -> int:
-        w = 300 + 45 * math.exp((self.skill - 50) / 8.0) * 10
+        w = max(400.0, 100_000 * math.exp((self.skill - 50) / 6.0) * 0.0022)
         return int(round(w / 50.0) * 50)
 
 
@@ -109,6 +114,11 @@ class Club:
     academy_level: int = 1
     is_user: bool = False
     emoji: str = "⚽"
+    colors: list = field(default_factory=lambda: ["#3b82f6", "#ffffff"])
+    key: str = ""
+    sponsor: int = 0
+    crest: str = ""
+    country: str = ""
 
 
 @dataclass
@@ -151,6 +161,7 @@ class World:
     last_match: Optional[dict] = None
     next_id: int = 1
     fired: bool = False
+    slot: int = 0
     season_finances: dict = field(default_factory=lambda: {"income": 0, "wages": 0, "transfers_in": 0, "transfers_out": 0})
 
     # ---------- helpers ----------
@@ -177,7 +188,7 @@ class World:
 
     @property
     def rounds_total(self) -> int:
-        return len(self.fixtures.get(self.club.division, self.fixtures.get(str(self.club.division), [])))
+        return len(self.fixtures.get(self.club.division, []))
 
     def transfer_window_open(self) -> bool:
         total = self.rounds_total or 22

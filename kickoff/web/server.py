@@ -1,0 +1,554 @@
+"""aiohttp web server: Telegram Mini App static files + JSON API."""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import logging
+import os
+import time
+from pathlib import Path
+from urllib.parse import parse_qsl
+
+from aiohttp import web
+
+from ..game.leagues import LEAGUES
+from ..game.match import pick_lineup
+from ..game.models import FORMATIONS, POS_NAME, SQUAD_MAX, STYLES, TRAINING
+from ..game.season import fair_ticket, next_fixture, position, season_over, sponsor_income, table, wage_bill
+from ..game.transfers import asking_price, upgrade_cost, wage_demand
+from ..meta import MAX_SLOTS, SHOP, SLOT_PRICE
+from ..service import Service, locks
+from ..game import transfers as tr
+from ..game.names import flag
+
+log = logging.getLogger(__name__)
+STATIC = Path(__file__).parent / "static"
+
+
+# ====================================================================== auth
+def check_init_data(init_data: str, token: str, max_age: int = 7 * 86400) -> dict | None:
+    try:
+        pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+        received = pairs.pop("hash")
+    except Exception:
+        return None
+    check = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
+    secret = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
+    calc = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(calc, received):
+        return None
+    if time.time() - int(pairs.get("auth_date", "0")) > max_age:
+        return None
+    try:
+        return json.loads(pairs.get("user", "{}"))
+    except ValueError:
+        return None
+
+
+# ====================================================================== serializers
+def season_label(season: int) -> str:
+    y = 2025 + season
+    return f"{y}/{str(y + 1)[-2:]}"
+
+
+def club_json(w, c) -> dict:
+    return {"id": c.id, "name": c.name, "city": c.city, "colors": c.colors, "crest": c.crest, "rep": c.reputation,
+            "league": c.division, "leagueShort": LEAGUES[c.division]["short"], "country": c.country,
+            "flag": LEAGUES[c.division]["flag"], "key": c.key}
+
+
+def player_json(w, p, xi: set | None = None) -> dict:
+    return {"id": p.id, "name": p.name, "age": p.age, "pos": p.pos, "skill": p.skill, "pot": p.potential,
+            "value": p.value(), "wage": p.wage, "fitness": p.fitness, "morale": p.morale,
+            "contract": season_label(w.season + p.contract - 1), "contractYears": p.contract,
+            "yellows": p.yellows, "injured": p.injured, "suspended": p.suspended, "listed": p.listed,
+            "resting": p.resting, "youth": p.youth, "nation": p.nation, "flag": flag(p.nation), "number": p.number,
+            "apps": p.apps, "goals": p.goals, "assists": p.assists, "rating": p.avg_rating, "real": p.real,
+            "xi": bool(xi and p.id in xi), "club": p.club_id}
+
+
+def team_rating(w, club) -> int:
+    lu = pick_lineup(w, club)
+    return round(sum(p.skill for _, p in lu) / max(1, len(lu)))
+
+
+def career_card(w) -> dict:
+    c = w.club
+    rows = table(w, c.division)
+    pos = [r["club"] for r in rows].index(c.id) + 1
+    row = rows[pos - 1]
+    return {"slot": w.slot, "club": club_json(w, c), "season": season_label(w.season), "position": pos,
+            "of": len(rows), "points": row["pts"], "trophies": len([t for t in w.trophies if t.startswith("🏆")]),
+            "fired": w.fired, "round": w.round, "rounds": w.rounds_total}
+
+
+def profile_json(svc: Service, uid: int) -> dict:
+    prof = svc.st.profile(uid)
+    slots = svc.st.slots(uid)
+    title, level, xp_in, xp_need = prof.rank
+    out_slots = []
+    for i in range(MAX_SLOTS):
+        if i in slots:
+            out_slots.append({"slot": i, "state": "career", "career": career_card(slots[i])})
+        elif i < prof.slots_unlocked:
+            out_slots.append({"slot": i, "state": "empty"})
+        else:
+            out_slots.append({"slot": i, "state": "locked", "price": SLOT_PRICE.get(i, 200)})
+    active = prof.active_slot if prof.active_slot in slots else (min(slots) if slots else None)
+    return {
+        "user": {"name": prof.name, "username": prof.username, "photo": prof.photo_url},
+        "coins": prof.coins, "xp": prof.xp, "rank": title, "level": level, "xpIn": xp_in, "xpNeed": xp_need,
+        "daily": {"available": prof.daily_available(), "amount": prof.daily_amount(), "streak": prof.daily_streak},
+        "tasks": prof.tasks(), "claimable": len(prof.claimable()),
+        "slots": out_slots, "active": active,
+        "shop": [{"id": k, **v} for k, v in SHOP.items()],
+        "hall": [dict(zip(["manager", "club", "seasons", "titles", "promotions", "score"], r)) for r in svc.st.top(10)],
+    }
+
+
+def team_json(w) -> dict:
+    c = w.club
+    squad = w.squad(c.id)
+    xi = {p.id for _, p in pick_lineup(w, c)}
+    rows = table(w, c.division)
+    my = next(r for r in rows if r["club"] == c.id)
+    groups = []
+    for pos in ("GK", "DF", "MF", "FW"):
+        ps = sorted((p for p in squad if p.pos == pos), key=lambda p: -p.skill)
+        groups.append({"pos": pos, "title": POS_NAME[pos], "players": [player_json(w, p, xi) for p in ps]})
+    trophies = {}
+    for t in w.trophies:
+        k = "league" if t.startswith("🏆") else "promo"
+        trophies[k] = trophies.get(k, 0) + 1
+    return {
+        "club": club_json(w, c), "season": season_label(w.season), "budget": c.budget,
+        "stats": {"rating": team_rating(w, c), "wins": my["w"], "played": my["p"], "rounds": w.rounds_total,
+                  "value": sum(p.value() for p in squad), "position": rows.index(my) + 1, "of": len(rows),
+                  "points": my["pts"]},
+        "trophies": trophies, "trophyList": w.trophies,
+        "groups": groups, "count": len(squad), "max": SQUAD_MAX,
+        "academyLevel": c.academy_level, "trainingLevel": c.training_level,
+        "academyCost": upgrade_cost(w, "academy"), "trainingCost": upgrade_cost(w, "training"),
+        "tactics": {"formation": c.formation, "style": c.style, "training": w.training,
+                    "formations": list(FORMATIONS), "styles": STYLES, "trainings": TRAINING},
+        "confidence": w.confidence, "target": w.board_target, "window": w.transfer_window_open(),
+        "fired": w.fired, "seasonOver": season_over(w), "offers": len(w.offers),
+    }
+
+
+def match_preview(w) -> dict:
+    nf = next_fixture(w)
+    if not nf:
+        return {"seasonOver": True}
+    h, a = nf
+    rows = table(w, w.club.division)
+    pos = {r["club"]: i + 1 for i, r in enumerate(rows)}
+    form = {r["club"]: r["form"][-5:] for r in rows}
+    lu = pick_lineup(w, w.club)
+    unavailable = [player_json(w, p) for p in w.squad(w.club_id) if not p.available]
+    last = None
+    if w.last_match:
+        last = {"home": club_json(w, w.clubs[w.last_match["home"]]), "away": club_json(w, w.clubs[w.last_match["away"]]),
+                "hg": w.last_match["hg"], "ag": w.last_match["ag"]}
+    return {
+        "round": w.round + 1, "rounds": w.rounds_total,
+        "home": {**club_json(w, w.clubs[h]), "pos": pos[h], "form": form[h], "rating": team_rating(w, w.clubs[h])},
+        "away": {**club_json(w, w.clubs[a]), "pos": pos[a], "form": form[a], "rating": team_rating(w, w.clubs[a])},
+        "isHome": h == w.club_id, "formation": w.club.formation, "style": w.club.style, "styles": STYLES,
+        "lineup": [{"slot": s, **player_json(w, p)} for s, p in lu], "unavailable": unavailable, "last": last,
+        "seasonOver": False,
+    }
+
+
+def match_result_json(w, res: dict) -> dict:
+    def name(pid):
+        p = w.players.get(int(pid)) if pid is not None else None
+        return p.name if p else ""
+    events = []
+    for e in res["events"]:
+        e2 = dict(e)
+        for k in ("player", "assist", "out", "in", "gk"):
+            if e.get(k) is not None:
+                e2[k + "Name"] = name(e[k])
+        events.append(e2)
+    ratings = []
+    for pid, r in res["ratings"].items():
+        p = w.players.get(int(pid))
+        if p and p.club_id == w.club_id:
+            ratings.append({"name": p.name, "pos": p.pos, "rating": r, "goals": res["goals_by"].get(pid, 0)})
+    ratings.sort(key=lambda x: -x["rating"])
+    motm = w.players.get(int(res["motm"])) if res.get("motm") is not None else None
+    return {"home": club_json(w, w.clubs[res["home"]]), "away": club_json(w, w.clubs[res["away"]]),
+            "hg": res["hg"], "ag": res["ag"], "events": events, "possession": res["possession"],
+            "shots": res["shots"], "onTarget": res["on_target"], "xg": res["xg"],
+            "attendance": res.get("attendance", 0), "ratings": ratings,
+            "motm": {"name": motm.name, "rating": res["ratings"].get(res["motm"])} if motm else None,
+            "xp": res.get("xp", 0), "fired": w.fired, "seasonOver": season_over(w), "isHome": res["home"] == w.club_id}
+
+
+def table_json(w, league: int) -> dict:
+    rows = table(w, league)
+    out = []
+    for i, r in enumerate(rows, 1):
+        c = w.clubs[r["club"]]
+        out.append({"pos": i, "club": club_json(w, c), "p": r["p"], "w": r["w"], "d": r["d"], "l": r["l"],
+                    "gf": r["gf"], "ga": r["ga"], "pts": r["pts"], "form": r["form"][-5:], "me": c.id == w.club_id})
+    scorers = sorted((p for p in w.players.values() if p.club_id and w.clubs[p.club_id].division == league and p.goals),
+                     key=lambda p: (p.goals, p.assists), reverse=True)[:10]
+    zones = {"down": 2 if league == 1 else 0, "up": 2 if league == 2 else 0}
+    return {"league": league, "leagues": [{"id": k, "short": v["short"], "flag": v["flag"]} for k, v in LEAGUES.items()],
+            "name": LEAGUES[league]["name"], "rows": out, "zones": zones,
+            "scorers": [{"name": p.name, "club": w.clubs[p.club_id].name, "goals": p.goals, "assists": p.assists,
+                         "flag": flag(p.nation)} for p in scorers]}
+
+
+def market_json(w, f: str, page: int, q: str) -> dict:
+    others = [p for p in w.players.values() if p.club_id != w.club_id]
+    if q:
+        ql = q.lower()
+        others = [p for p in others if ql in p.name.lower() or (p.club_id and ql in w.clubs[p.club_id].name.lower())]
+    if f == "FA":
+        ps = [p for p in others if p.club_id is None]
+    elif f == "YT":
+        ps = [p for p in others if p.age <= 21 and p.potential >= 72]
+    elif f in ("GK", "DF", "MF", "FW"):
+        ps = [p for p in others if p.pos == f]
+    else:
+        ps = others
+    ps.sort(key=(lambda p: (-p.potential, -p.skill)) if f == "YT" else (lambda p: (-p.skill, -p.potential)))
+    per = 20
+    chunk = ps[page * per:(page + 1) * per]
+    items = []
+    for p in chunk:
+        d = player_json(w, p)
+        d["price"] = asking_price(w, p.id) if p.club_id else 0
+        d["clubInfo"] = club_json(w, w.clubs[p.club_id]) if p.club_id else None
+        items.append(d)
+    offers = []
+    for o in w.offers:
+        p = w.players.get(o.player_id)
+        if p:
+            offers.append({"id": o.id, "fee": o.fee, "player": player_json(w, p), "club": club_json(w, w.clubs[o.club_id])})
+    return {"items": items, "page": page, "pages": max(1, (len(ps) + per - 1) // per), "budget": w.club.budget,
+            "window": w.transfer_window_open(), "offers": offers, "count": len(w.squad(w.club_id)), "max": SQUAD_MAX}
+
+
+def player_detail(w, pid: int) -> dict:
+    p = w.players[pid]
+    d = player_json(w, p)
+    d["mine"] = p.club_id == w.club_id
+    d["clubInfo"] = club_json(w, w.clubs[p.club_id]) if p.club_id else None
+    if not d["mine"]:
+        d["price"] = asking_price(w, pid) if p.club_id else 0
+        d["wageDemand"] = wage_demand(w, pid)
+        d["signBonus"] = wage_demand(w, pid) * 4 if p.club_id is None else 0
+    d["careerGoals"], d["careerApps"] = p.career_goals, p.career_apps
+    return d
+
+
+def club_tab_json(w) -> dict:
+    c = w.club
+    f = w.season_finances
+    return {"club": club_json(w, c), "budget": c.budget, "wages": wage_bill(w, c.id), "sponsor": sponsor_income(c),
+            "stadium": c.stadium, "ticket": c.ticket_price, "fairTicket": fair_ticket(c), "finances": f,
+            "training": c.training_level, "academy": c.academy_level, "reputation": c.reputation,
+            "upgrades": {k: upgrade_cost(w, k) for k in ("stadium", "training", "academy")},
+            "history": [{**h, "clubName": w.clubs[h["club"]].name, "league": LEAGUES[h["division"]]["short"],
+                         "season": season_label(h["season"])} for h in w.history],
+            "trophies": w.trophies, "news": w.news[:20], "confidence": w.confidence, "target": w.board_target,
+            "manager": w.manager}
+
+
+# ====================================================================== app
+def create_app(svc: Service, token: str) -> web.Application:
+    dev = os.getenv("DEV_AUTH") == "1"
+
+    @web.middleware
+    async def auth_mw(request, handler):
+        if not request.path.startswith("/api/"):
+            return await handler(request)
+        user = None
+        init = request.headers.get("X-Init-Data", "")
+        if init and token:
+            user = check_init_data(init, token)
+        if user is None and dev:
+            user = {"id": int(request.headers.get("X-Dev-User", "1")), "first_name": "Ілля", "username": "dev"}
+        if not user or "id" not in user:
+            return web.json_response({"error": "Відкрий гру через Telegram."}, status=401)
+        request["user"] = user
+        uid = int(user["id"])
+        request["uid"] = uid
+        async with locks[uid]:
+            try:
+                return await handler(request)
+            except web.HTTPException:
+                raise
+            except Exception:
+                log.exception("API error %s", request.path)
+                return web.json_response({"error": "Помилка сервера, спробуй ще раз."}, status=500)
+
+    app = web.Application(middlewares=[auth_mw])
+    r = app.router
+
+    async def body(request) -> dict:
+        try:
+            return await request.json()
+        except Exception:
+            return {}
+
+    def ok(data=None, msg: str | None = None):
+        out = {"ok": True}
+        if msg:
+            out["message"] = msg
+        if data is not None:
+            out["data"] = data
+        return web.json_response(out)
+
+    def fail(msg: str, status: int = 400):
+        return web.json_response({"ok": False, "error": msg}, status=status)
+
+    def sync_user(request):
+        prof = svc.st.profile(request["uid"])
+        u = request["user"]
+        name = " ".join(x for x in (u.get("first_name"), u.get("last_name")) if x) or prof.name
+        changed = (prof.name, prof.username, prof.photo_url) != (name, u.get("username", ""), u.get("photo_url", prof.photo_url))
+        prof.name, prof.username = name, u.get("username", "")
+        if u.get("photo_url"):
+            prof.photo_url = u["photo_url"]
+        if changed:
+            svc.st.save_profile(prof)
+        return prof
+
+    def world(request):
+        prof = svc.st.profile(request["uid"])
+        return svc.st.load(request["uid"], prof.active_slot), prof
+
+    # ---------------- profile / meta
+    async def get_profile(request):
+        sync_user(request)
+        return ok(profile_json(svc, request["uid"]))
+
+    async def claim_daily(request):
+        prof = svc.st.profile(request["uid"])
+        good, msg, _ = prof.claim_daily()
+        svc.st.save_profile(prof)
+        return ok(profile_json(svc, request["uid"]), msg) if good else fail(msg)
+
+    async def claim_task(request):
+        prof = svc.st.profile(request["uid"])
+        good, msg, _ = prof.claim_task((await body(request)).get("id", ""))
+        svc.st.save_profile(prof)
+        return ok(profile_json(svc, request["uid"]), msg) if good else fail(msg)
+
+    async def unlock_slot(request):
+        prof = svc.st.profile(request["uid"])
+        good, msg = prof.unlock_slot()
+        svc.st.save_profile(prof)
+        return ok(profile_json(svc, request["uid"]), msg) if good else fail(msg)
+
+    async def shop_buy(request):
+        w, prof = world(request)
+        good, msg = svc.buy_item(w, prof, (await body(request)).get("item", ""))
+        if good:
+            svc.st.save(w)
+            svc.st.save_profile(prof)
+            return ok(profile_json(svc, request["uid"]), msg)
+        return fail(msg)
+
+    # ---------------- careers
+    async def career_draft(request):
+        slot = int((await body(request)).get("slot", 0))
+        prof = sync_user(request)
+        if slot >= prof.slots_unlocked:
+            return fail("Слот закритий.")
+        w = svc.draft_world(request["uid"], slot, prof.name)
+        leagues = []
+        for lid, meta in LEAGUES.items():
+            clubs = sorted(w.division_clubs(lid), key=lambda c: -c.reputation)
+            leagues.append({"id": lid, "name": meta["name"], "short": meta["short"], "flag": meta["flag"],
+                            "clubs": [{**club_json(w, c), "rating": team_rating(w, c), "budget": c.budget}
+                                      for c in clubs]})
+        return ok({"slot": slot, "leagues": leagues})
+
+    async def career_create(request):
+        b = await body(request)
+        prof = sync_user(request)
+        try:
+            svc.create_career(request["uid"], int(b.get("slot", 0)), int(b["club_id"]), prof.name)
+        except (ValueError, KeyError) as e:
+            return fail(str(e))
+        return ok(profile_json(svc, request["uid"]), "Вітаємо з призначенням!")
+
+    async def career_select(request):
+        slot = int((await body(request)).get("slot", 0))
+        prof = svc.st.profile(request["uid"])
+        if svc.st.load(request["uid"], slot) is None:
+            return fail("Слот порожній.")
+        prof.active_slot = slot
+        svc.st.save_profile(prof)
+        return ok(profile_json(svc, request["uid"]))
+
+    async def career_delete(request):
+        slot = int((await body(request)).get("slot", 0))
+        svc.st.delete(request["uid"], slot)
+        return ok(profile_json(svc, request["uid"]), "Кар’єру видалено.")
+
+    # ---------------- in-career views
+    async def get_team(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        return ok(team_json(w))
+
+    async def get_match(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        return ok(match_preview(w))
+
+    async def play_match(request):
+        w, prof = world(request)
+        if w is None or w.fired:
+            return fail("Немає активної кар’єри.")
+        res = svc.play(w, prof)
+        if res is None:
+            return fail("Сезон завершено.")
+        svc.st.save(w)
+        svc.st.save_profile(prof)
+        return ok(match_result_json(w, res))
+
+    async def season_end(request):
+        w, prof = world(request)
+        if w is None or not season_over(w):
+            return fail("Сезон ще триває.")
+        s = svc.finish_season(w, prof)
+        svc.st.save(w)
+        svc.st.save_profile(prof)
+        div = s["division"]
+        out = {"season": season_label(s["season"]), "position": s["position"], "target": s["target"],
+               "league": LEAGUES[div]["short"], "prize": s.get("prize", 0), "xp": s["xp"], "fired": w.fired,
+               "confidence": w.confidence, "newTarget": w.board_target,
+               "promoted": [w.clubs[c].name for c in s.get("promoted", [])],
+               "relegated": [w.clubs[c].name for c in s.get("relegated", [])],
+               "retired": s.get("retired", []), "left": s.get("left", []),
+               "youth": [w.players[i].name for i in s.get("youth", []) if i in w.players],
+               "champions": [{"league": LEAGUES[int(d)]["short"], "club": w.clubs[i["champion"]].name}
+                             for d, i in s["divisions"].items()]}
+        return ok(out)
+
+    async def get_table(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        league = int(request.query.get("league", w.club.division))
+        if league not in LEAGUES:
+            league = w.club.division
+        return ok(table_json(w, league))
+
+    async def get_market(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        q = request.query
+        return ok(market_json(w, q.get("f", "ALL"), int(q.get("page", 0)), q.get("q", "").strip()))
+
+    async def get_player(request):
+        w, _ = world(request)
+        pid = int(request.query.get("id", 0))
+        if w is None or pid not in w.players:
+            return fail("Гравця не знайдено.", 404)
+        return ok(player_detail(w, pid))
+
+    async def player_action(request):
+        w, _ = world(request)
+        b = await body(request)
+        pid, action = int(b.get("id", 0)), b.get("action")
+        fns = {"rest": tr.toggle_rest, "list": tr.toggle_list, "renew": tr.renew, "release": tr.release,
+               "quicksell": tr.quick_sell, "buy": tr.buy}
+        if w is None or action not in fns or pid not in w.players:
+            return fail("Невірна дія.")
+        p = w.players[pid]
+        if action != "buy" and p.club_id != w.club_id:
+            return fail("Гравця вже немає в клубі.")
+        good, msg = fns[action](w, pid)
+        if good:
+            svc.st.save(w)
+        data = player_detail(w, pid) if pid in w.players else None
+        return ok(data, msg) if good else fail(msg)
+
+    async def offer_action(request):
+        w, _ = world(request)
+        b = await body(request)
+        fn = tr.accept_offer if b.get("accept") else tr.reject_offer
+        good, msg = fn(w, int(b.get("id", 0)))
+        if good:
+            svc.st.save(w)
+        return ok(market_json(w, "ALL", 0, ""), msg) if good else fail(msg)
+
+    async def set_tactics(request):
+        w, _ = world(request)
+        b = await body(request)
+        if b.get("formation") in FORMATIONS:
+            w.club.formation = b["formation"]
+        if b.get("style") in STYLES:
+            w.club.style = b["style"]
+        if b.get("training") in TRAINING:
+            w.training = b["training"]
+        svc.st.save(w)
+        return ok(team_json(w))
+
+    async def get_club(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        return ok(club_tab_json(w))
+
+    async def club_action(request):
+        w, _ = world(request)
+        b = await body(request)
+        msg = None
+        if "ticket" in b:
+            w.club.ticket_price = max(3, min(300, w.club.ticket_price + int(b["ticket"])))
+            good = True
+        else:
+            good, msg = tr.upgrade(w, b.get("upgrade", ""))
+        if good:
+            svc.st.save(w)
+            return ok(club_tab_json(w), msg)
+        return fail(msg)
+
+    r.add_get("/api/profile", get_profile)
+    r.add_post("/api/daily", claim_daily)
+    r.add_post("/api/task", claim_task)
+    r.add_post("/api/slot/unlock", unlock_slot)
+    r.add_post("/api/shop", shop_buy)
+    r.add_post("/api/career/draft", career_draft)
+    r.add_post("/api/career/create", career_create)
+    r.add_post("/api/career/select", career_select)
+    r.add_post("/api/career/delete", career_delete)
+    r.add_get("/api/team", get_team)
+    r.add_get("/api/match", get_match)
+    r.add_post("/api/match/play", play_match)
+    r.add_post("/api/season/end", season_end)
+    r.add_get("/api/table", get_table)
+    r.add_get("/api/market", get_market)
+    r.add_get("/api/player", get_player)
+    r.add_post("/api/player", player_action)
+    r.add_post("/api/offer", offer_action)
+    r.add_post("/api/tactics", set_tactics)
+    r.add_get("/api/club", get_club)
+    r.add_post("/api/club", club_action)
+
+    async def index(request):
+        resp = web.FileResponse(STATIC / "index.html")
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+    async def health(request):
+        return web.Response(text="ok")
+
+    r.add_get("/", index)
+    r.add_get("/health", health)
+    r.add_static("/static/", STATIC)
+    return app

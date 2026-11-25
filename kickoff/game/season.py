@@ -5,6 +5,7 @@ import random
 
 from .generator import club_level, make_player, refresh_free_agents, youth_player
 from .match import apply_result, simulate
+from .leagues import LEAGUES, PROMOTION
 from .models import MatchResult, Offer, World
 
 ROUND_WEEKS = 1
@@ -104,7 +105,8 @@ def season_over(world: World) -> bool:
 
 # ---------------------------------------------------------------- economy
 def fair_ticket(club) -> int:
-    return 5 + club.reputation // 8
+    money = LEAGUES.get(club.division, {}).get("money", 1.0)
+    return int(max(5, 6 + (club.reputation - 55) * 0.9 * (0.6 + money / 4)))
 
 
 def gate_income(world: World, club, rng: random.Random) -> tuple[int, int]:
@@ -113,14 +115,14 @@ def gate_income(world: World, club, rng: random.Random) -> tuple[int, int]:
     if rows:
         last = rows[0]["form"][-5:]
         form_bonus = (last.count("W") - last.count("L")) * 0.02
-    fill = 0.38 + club.reputation / 160 + form_bonus - (club.ticket_price - fair_ticket(club)) * 0.035
+    fill = 0.78 + form_bonus - (club.ticket_price - fair_ticket(club)) * 0.035
     fill = max(0.12, min(1.0, fill + rng.uniform(-0.05, 0.05)))
     att = int(club.stadium * fill)
     return att, att * club.ticket_price
 
 
 def sponsor_income(club) -> int:
-    return int(club.reputation ** 2 * 12)
+    return int(club.sponsor or club.reputation ** 2 * 12)
 
 
 def wage_bill(world: World, club_id: int) -> int:
@@ -227,15 +229,15 @@ def play_round(world: World, rng: random.Random | None = None) -> dict | None:
     user_res = None
     played: set[int] = set()
     for div, rounds in world.fixtures.items():
-        if r >= len(rounds):
-            continue
-        for h, a in rounds[r]:
+        n = len(rounds)
+        lo, hi = (r * n) // total, ((r + 1) * n) // total
+        for h, a, rr in [(h, a, k) for k in range(lo, hi) for h, a in rounds[k]]:
             home, away = world.clubs[h], world.clubs[a]
             detailed = world.club_id in (h, a)
             res = simulate(world, home, away, rng, detailed=detailed)
             apply_result(world, res, rng)
             played.update(int(k) for k in res["minutes"])
-            world.results.append(MatchResult(round=r, division=div, home=h, away=a, hg=res["hg"], ag=res["ag"]))
+            world.results.append(MatchResult(round=rr, division=div, home=h, away=a, hg=res["hg"], ag=res["ag"]))
             att, gate = gate_income(world, home, rng)
             home.budget += gate
             res["attendance"] = att
@@ -301,7 +303,9 @@ def _serialisable(res: dict) -> dict:
 
 
 # ---------------------------------------------------------------- season end
-PRIZES = {1: (1_500_000, 130_000), 2: (400_000, 45_000)}
+def prizes(div: int) -> tuple[int, int]:
+    money = LEAGUES.get(div, {}).get("money", 1.0)
+    return int(money * 2_500_000), int(money * 180_000)
 
 
 def end_season(world: World, rng: random.Random | None = None) -> dict:
@@ -313,7 +317,7 @@ def end_season(world: World, rng: random.Random | None = None) -> dict:
     for d in divisions:
         rows = tables[d]
         champion = rows[0]["club"]
-        bonus, step = PRIZES.get(d, (200_000, 30_000))
+        bonus, step = prizes(d)
         for i, row in enumerate(rows):
             club = world.clubs[row["club"]]
             prize = (len(rows) - i) * step + (bonus if i == 0 else 0)
@@ -341,21 +345,26 @@ def end_season(world: World, rng: random.Random | None = None) -> dict:
     summary["division"] = user_div
     summary["target"] = world.board_target
     if pos == 1:
-        world.trophies.append(f"🏆 Чемпіон {'Прем’єр-ліги' if user_div == 1 else 'Першої ліги'} (сезон {world.season})")
+        world.trophies.append(f"🏆 Чемпіон: {LEAGUES[user_div]['short']} (сезон {world.season})")
     if pos <= world.board_target:
         world.confidence = min(100, world.confidence + 15 + (world.board_target - pos) * 3)
     else:
         world.confidence = max(0, world.confidence - (pos - world.board_target) * 8)
     # promotion / relegation
-    if len(divisions) >= 2:
-        d1, d2 = tables[1], tables[2]
-        down = [r["club"] for r in d1[-2:]]
-        up = [r["club"] for r in d2[:2]]
+    summary["relegated"], summary["promoted"] = [], []
+    for upper, lower, n in PROMOTION:
+        if upper not in tables or lower not in tables:
+            continue
+        down = [r["club"] for r in tables[upper][-n:]]
+        up = [r["club"] for r in tables[lower][:n]]
         for cid in down:
-            world.clubs[cid].division = 2
+            world.clubs[cid].division = lower
         for cid in up:
-            world.clubs[cid].division = 1
-        summary["relegated"], summary["promoted"] = down, up
+            world.clubs[cid].division = upper
+        summary["relegated"] += down
+        summary["promoted"] += up
+    if True:
+        down, up = summary["relegated"], summary["promoted"]
         if world.club_id in down:
             world.confidence = max(0, world.confidence - 25)
         if world.club_id in up:

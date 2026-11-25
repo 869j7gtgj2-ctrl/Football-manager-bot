@@ -14,7 +14,7 @@ def career(seed=1, div=2):
     return start_career(w, cid, random.Random(seed))
 
 
-def test_round_robin_everyone_plays_everyone_twice():
+def test_round_robin_everyone_plays_everyone_twice():  # noqa
     ids = list(range(12))
     rounds = round_robin(ids, random.Random(0))
     assert len(rounds) == 22
@@ -51,8 +51,9 @@ def test_full_seasons_and_roundtrip():
     for _ in range(2):
         while not season_over(w):
             play_round(w, rng)
-        rows = table(w, w.club.division)
-        assert all(r["p"] == 22 for r in rows)
+        for lid in w.fixtures:
+            rows = table(w, lid)
+            assert all(r["p"] == (len(rows) - 1) * 2 for r in rows), lid
         s = end_season(w, rng)
         assert s["position"] >= 1
         assert len(w.squad(w.club_id)) >= 16
