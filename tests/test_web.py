@@ -61,3 +61,27 @@ async def test_full_flow(tmp_path):
         assert j["ok"]
         r = await c.get("/")
         assert r.status == 200
+
+
+@pytest.mark.asyncio
+async def test_season_report_sent_to_chat(tmp_path):
+    svc = Service(Storage(str(tmp_path / "db.sqlite")))
+    sent = []
+
+    async def notify(uid, text):
+        sent.append((uid, text))
+    svc.notify = notify
+    app = create_app(svc, TOKEN)
+    async with TestClient(TestServer(app)) as c:
+        h = {"X-Init-Data": signed({"id": 9, "first_name": "Ілля"})}
+        draft = (await (await c.post("/api/career/draft", json={"slot": 0}, headers=h)).json())["data"]
+        club = next(x for l in draft["leagues"] for x in l["clubs"] if x["name"] == "Полтава")
+        await c.post("/api/career/create", json={"slot": 0, "club_id": club["id"]}, headers=h)
+        while True:
+            j = await (await c.post("/api/match/play", json={}, headers=h)).json()
+            if not j["ok"] or j["data"]["seasonOver"]:
+                break
+        j = await (await c.post("/api/season/end", json={}, headers=h)).json()
+        assert j["ok"]
+        report = [t for _, t in sent if "Сезон 2026/27 завершено" in t]
+        assert report and "Рівень" in report[0] and "▰" in report[0] + "▱"

@@ -20,6 +20,14 @@ pending: dict[tuple[int, int], object] = {}
 class Service:
     def __init__(self, storage: Storage):
         self.st = storage
+        self.notify = None  # async callable(user_id, html_text) set by main.py when the bot runs
+
+    async def send(self, uid: int, text: str) -> None:
+        if self.notify:
+            try:
+                await self.notify(uid, text)
+            except Exception:  # user may have blocked the bot; never break the game
+                pass
 
     # ---------------------------------------------------------------- careers
     def draft_world(self, uid: int, slot: int, manager: str):
@@ -55,9 +63,24 @@ class Service:
         return res
 
     def finish_season(self, w, prof: Profile) -> dict:
-        club_id = w.club_id
+        from .game.season import table
+        club = w.club
+        row = next(r for r in table(w, club.division) if r["club"] == club.id)
+        squad = w.squad(club.id)
+        top = max(squad, key=lambda p: (p.goals, p.assists), default=None)
+        scorer = (top.name, top.goals) if top and top.goals else None
+        star = max((p for p in squad if p.apps >= 5), key=lambda p: p.avg_rating, default=None)
+        best = (star.name, star.avg_rating) if star else None
+        season = w.season
         summary = end_season(w, random.Random())
-        summary["xp"] = prof.on_season(summary, club_id)
+        summary["xp"] = prof.on_season(summary, club.id)
+        summary.update({
+            "club": club.name, "season_label": f"{2025 + season}/{str(2026 + season)[-2:]}",
+            "pts": row["pts"], "w": row["w"], "d": row["d"], "l": row["l"], "gf": row["gf"], "ga": row["ga"],
+            "scorer": scorer, "best": best,
+            "promoted_me": club.id in summary.get("promoted", []), "relegated_me": club.id in summary.get("relegated", []),
+            "confidence": w.confidence, "fired": w.fired, "new_target": w.board_target,
+        })
         return summary
 
     # ---------------------------------------------------------------- shop

@@ -42,6 +42,10 @@ async def main() -> None:
     bot = Bot(Config.token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     dp.include_router(handlers.setup(storage, Config.webapp_url))
+
+    async def notify(uid: int, text: str) -> None:
+        await bot.send_message(uid, text, reply_markup=handlers.play_kb())
+    svc.notify = notify
     await bot.set_my_commands([
         BotCommand(command="start", description="Грати"),
         BotCommand(command="top", description="Зала слави"),

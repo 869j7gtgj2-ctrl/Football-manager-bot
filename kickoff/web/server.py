@@ -411,20 +411,27 @@ def create_app(svc: Service, token: str) -> web.Application:
         w, prof = world(request)
         if w is None or w.fired:
             return fail("Немає активної кар’єри.")
+        level_before = prof.rank[1]
         res = svc.play(w, prof)
         if res is None:
             return fail("Сезон завершено.")
         svc.st.save(w)
         svc.st.save_profile(prof)
+        if prof.rank[1] > level_before:
+            from ..bot.messages import level_up
+            await svc.send(request["uid"], level_up(prof))
         return ok(match_result_json(w, res))
 
     async def season_end(request):
         w, prof = world(request)
         if w is None or not season_over(w):
             return fail("Сезон ще триває.")
+        level_before = prof.rank[1]
         s = svc.finish_season(w, prof)
         svc.st.save(w)
         svc.st.save_profile(prof)
+        from ..bot.messages import season_report
+        await svc.send(request["uid"], season_report(s, prof, level_before))
         div = s["division"]
         out = {"season": season_label(s["season"]), "position": s["position"], "target": s["target"],
                "league": LEAGUES[div]["short"], "prize": s.get("prize", 0), "xp": s["xp"], "fired": w.fired,
