@@ -1,6 +1,6 @@
 /* KICKOFF Mini App */
 const tg = window.Telegram && window.Telegram.WebApp;
-if (tg) { try { tg.ready(); tg.expand(); tg.setHeaderColor && tg.setHeaderColor('#060914'); tg.setBackgroundColor && tg.setBackgroundColor('#060914'); tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {} }
+if (tg) { try { tg.ready(); tg.expand(); tg.setHeaderColor && tg.setHeaderColor('#07090d'); tg.setBackgroundColor && tg.setBackgroundColor('#07090d'); tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {} }
 const DEV = new URLSearchParams(location.search).get('dev');
 
 const S = { view: 'home', tab: 'team', sub: 'squad', profile: null, team: null, match: null, table: null,
@@ -59,7 +59,7 @@ function badgeSVG(c) {
   <stop offset="0" stop-color="${shade(a, 1.15)}"/><stop offset="1" stop-color="${shade(a, .7)}"/></linearGradient></defs>
   <path d="M50 3 L94 16 V58 C94 86 74 104 50 113 C26 104 6 86 6 58 V16 Z" fill="url(#${id})" stroke="${b}" stroke-width="5"/>
   <path d="M50 3 L50 113" stroke="${b}" stroke-opacity=".35" stroke-width="14"/>
-  <text x="50" y="72" text-anchor="middle" font-family="Unbounded,Manrope,sans-serif" font-weight="800" font-size="${txt.length > 2 ? 26 : 32}" fill="${b}" stroke="${shade(a, .5)}" stroke-width="1.2">${esc(txt)}</text></svg>`;
+  <text x="50" y="72" text-anchor="middle" font-family="Oswald,Inter,sans-serif" font-weight="800" font-size="${txt.length > 2 ? 26 : 32}" fill="${b}" stroke="${shade(a, .5)}" stroke-width="1.2">${esc(txt)}</text></svg>`;
 }
 function crest(c, size = 56) {
   const inner = c.crest ? `<img src="${esc(c.crest)}" alt="" loading="lazy" onerror="this.outerHTML=window.__badge(${c.id})">` : badgeSVG(c);
@@ -72,7 +72,7 @@ window.__badge = id => badgeSVG(window.__clubs[id]);
 function confetti(n = 140) {
   const cv = $('#confetti'), ctx = cv.getContext('2d');
   cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio; ctx.scale(devicePixelRatio, devicePixelRatio);
-  const cols = ['#c4ff3d', '#22d3ee', '#8b5cf6', '#ff4fd8', '#ffcb45', '#ffffff'];
+  const cols = ['#e3b54a', '#f5d78e', '#ffffff', '#b8862b', '#2fbf71', '#d9dde5'];
   const ps = Array.from({ length: n }, () => ({ x: innerWidth / 2 + (Math.random() - .5) * 80, y: innerHeight * .35,
     vx: (Math.random() - .5) * 14, vy: -Math.random() * 14 - 4, s: 4 + Math.random() * 6, c: cols[Math.random() * cols.length | 0],
     r: Math.random() * 6, vr: (Math.random() - .5) * .4 }));
@@ -98,7 +98,7 @@ const IC = {
   back: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
   play: '<svg viewBox="0 0 24 24" style="fill:currentColor;stroke:none"><path d="M7 4.5v15l13-7.5z"/></svg>',
 };
-const gradDefs = '<svg width="0" height="0" style="position:absolute"><defs><linearGradient id="gradNav" x1="0" x2="1"><stop offset="0" stop-color="#c4ff3d"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg>';
+const gradDefs = '<svg width="0" height="0" style="position:absolute"><defs><linearGradient id="gradNav" x1="0" x2="1"><stop offset="0" stop-color="#f5d78e"/><stop offset="1" stop-color="#c9952f"/></linearGradient></defs></svg>';
 
 /* ---------------- stadium hero art */
 function stadiumSVG() {
@@ -108,13 +108,13 @@ function stadiumSVG() {
     <polygon points="${x - 18},${28 + (i % 2) * 6} ${x + 18},${28 + (i % 2) * 6} ${x + 120},300 ${x - 120},300" fill="url(#beam)" opacity=".55"/></g>`;
   });
   let crowd = '';
-  for (let i = 0; i < 160; i++) crowd += `<circle cx="${(i * 37) % 520}" cy="${118 + ((i * 13) % 34)}" r="${1 + (i % 3) * .5}" fill="${['#8b5cf6', '#22d3ee', '#ff4fd8', '#c4ff3d', '#ffffff'][i % 5]}" opacity="${.25 + (i % 4) * .12}"/>`;
+  for (let i = 0; i < 160; i++) crowd += `<circle cx="${(i * 37) % 520}" cy="${118 + ((i * 13) % 34)}" r="${1 + (i % 3) * .5}" fill="${['#e3b54a', '#9aa3b5', '#ffffff', '#c9952f', '#5b6475'][i % 5]}" opacity="${.25 + (i % 4) * .12}"/>`;
   return `<svg class="stadium" viewBox="0 0 520 300" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-  <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a1046"/><stop offset=".55" stop-color="#0c1b3e"/><stop offset="1" stop-color="#06101f"/></linearGradient>
+  <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#14161c"/><stop offset=".55" stop-color="#0b0e14"/><stop offset="1" stop-color="#07090d"/></linearGradient>
   <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff3b0" stop-opacity=".8"/><stop offset="1" stop-color="#fff3b0" stop-opacity="0"/></linearGradient>
-  <linearGradient id="grass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f9d55"/><stop offset="1" stop-color="#0b4d2c"/></linearGradient></defs>
+  <linearGradient id="grass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#156a3f"/><stop offset="1" stop-color="#0a3a23"/></linearGradient></defs>
   <rect width="520" height="300" fill="url(#sky)"/>
-  <path d="M0 105 Q260 70 520 105 L520 160 L0 160Z" fill="#141a3d"/>${crowd}
+  <path d="M0 105 Q260 70 520 105 L520 160 L0 160Z" fill="#11141b"/>${crowd}
   <path d="M-40 300 L70 165 L450 165 L560 300Z" fill="url(#grass)"/>
   <g stroke="#bff5d6" stroke-opacity=".55" stroke-width="2" fill="none"><path d="M70 165 L450 165 L560 300 L-40 300Z"/>
   <path d="M260 165 L260 300"/><ellipse cx="260" cy="225" rx="60" ry="22"/><path d="M180 165 L170 190 L350 190 L340 165"/></g>
@@ -203,7 +203,7 @@ function drawHome() {
   html += `</div>`;
   if (p.hall && p.hall.length) {
     html += `<div class="section-title">Зала слави</div><div class="card m16 list">` + p.hall.slice(0, 5).map((h, i) =>
-      `<div class="item"><div class="big-num" style="width:28px;color:${['#ffcb45', '#d7e0ff', '#ff9f43'][i] || 'var(--muted)'}">${i + 1}</div>
+      `<div class="item"><div class="big-num" style="width:28px;color:${['#e3b54a', '#c7ccd6', '#c27a3a'][i] || 'var(--muted)'}">${i + 1}</div>
       <div class="grow"><b>${esc(h.manager)}</b><div class="muted" style="font-size:13px;font-weight:700">${esc(h.club)} · 🏆${h.titles} · ${h.seasons} сез.</div></div>
       <b class="big-num" style="color:var(--cyan)">${h.score}</b></div>`).join('') + `</div>`;
   }
@@ -318,9 +318,9 @@ async function createCareer(id) {
 }
 
 /* ---------------- CAREER */
-async function openCareer() { haptic(); S.view = 'career'; S.tab = 'team'; S.sub = 'squad'; loading(); await loadTab(); }
+async function openCareer() { haptic(); S.view = 'career'; S.tab = 'team'; S.sub = 'xi'; S.lineup = null; loading(); await loadTab(); }
 async function loadTab() {
-  if (S.tab === 'team') S.team = (await call('/api/team')).data;
+  if (S.tab === 'team') { S.team = (await call('/api/team')).data; S.lineup = null; }
   if (S.tab === 'match') { S.match = (await call('/api/match')).data; S.team = S.team || (await call('/api/team')).data; }
   if (S.tab === 'transfer') S.market = (await call(`/api/market?f=${S.mfilter}&page=${S.mpage}&q=${encodeURIComponent(S.mq)}`)).data;
   if (S.tab === 'table') S.table = (await call('/api/table' + (S.league ? `?league=${S.league}` : ''))).data;
@@ -354,11 +354,12 @@ function teamTab() {
       ${t.trophies.league ? `<span class="trophy gold">🏆 Ліга ×${t.trophies.league}</span>` : ''}${t.trophies.promo ? `<span class="trophy green">🚀 Підвищення ×${t.trophies.promo}</span>` : ''}
       ${!t.trophies.league && !t.trophies.promo ? '<span class="dim" style="font-weight:700;font-size:13px">ще попереду</span>' : ''}</div>
     <div class="conf">Довіра правління <div class="bar ${t.confidence > 60 ? 'green' : t.confidence > 30 ? '' : 'violet'}"><i style="width:${t.confidence}%"></i></div>${t.confidence}% · ціль топ-${t.target}</div></div>
-  <div class="tabs">${[['squad', '👥 Склад'], ['academy', '🎓 Академія'], ['tactics', '🧠 Тактика']].map(([k, l]) => `<button class="${S.sub === k ? 'on' : ''}" onclick="S.sub='${k}';S.keepScroll=true;draw()">${l}</button>`).join('')}</div>`;
+  <div class="tabs">${[['xi', 'Основа'], ['squad', 'Гравці'], ['academy', 'Академія'], ['tactics', 'Тактика']].map(([k, l]) => `<button class="${S.sub === k ? 'on' : ''}" onclick="S.sub='${k}';S.keepScroll=true;draw()">${l}</button>`).join('')}</div>`;
   if (S.sub === 'squad') {
     html += `<div class="row between pad" style="margin-top:16px"><div class="h" style="font-size:18px;font-weight:800">Склад: сезон ${t.season}</div><span class="chip">${t.count}/${t.max}</span></div>`;
     t.groups.forEach(g => { html += `<div class="card group"><div class="ghead"><b>${g.title.toUpperCase()}</b><span class="count">${g.players.length}</span></div>${g.players.map(playerRow).join('')}</div>`; });
-  } else if (S.sub === 'academy') html += academyView();
+  } else if (S.sub === 'xi') html += lineupView();
+  else if (S.sub === 'academy') html += academyView();
   else html += tacticsView();
   return html;
 }
@@ -390,7 +391,64 @@ function tacticsView() {
   <div class="section-title">Стиль гри</div><div class="grid2 pad">${Object.entries(tc.styles).map(([k, v]) => `<button class="opt tap ${k === tc.style ? 'on' : ''}" onclick="setTac({style:'${k}'})"><b>${esc(v)}</b><span>${styleDesc[k]}</span></button>`).join('')}</div>
   <div class="section-title">Тренування <small>база ${S.team.trainingLevel}/5</small></div><div class="grid2 pad">${Object.entries(tc.trainings).map(([k, v]) => `<button class="opt tap ${k === tc.training ? 'on' : ''}" onclick="setTac({training:'${k}'})"><b>${esc(v)}</b><span>${trDesc[k]}</span></button>`).join('')}</div>`;
 }
-async function setTac(d) { haptic(); const j = await call('/api/tactics', d); S.team = j.data; S.keepScroll = true; draw(); }
+/* ---------------- lineup editor */
+const fitCol = f => f >= 85 ? '#3fd98a' : f >= 65 ? '#e3b54a' : '#e5484d';
+function pcCard(p, opts = {}) {
+  if (!p) return `<div class="pc empty" style="${opts.pos || ''}" onclick="${opts.click || ''}"><div class="card-p"><div class="r">–</div><div class="ro">${esc(opts.slot || '')}</div></div><div class="nm">Пусто</div></div>`;
+  const off = opts.slot && opts.slot !== p.role;
+  return `<div class="pc ${sc(p.skill)} ${opts.cls || ''}" style="${opts.pos || ''}" onclick="${opts.click || ''}">
+    <div class="card-p"><div class="r">${opts.eff ?? p.skill}</div><div class="fl">${p.flag}</div><div class="ro ${off ? 'off' : ''}">${esc(p.role)}</div>
+    <div class="fit"><i style="width:${p.fitness}%;background:${fitCol(p.fitness)}"></i></div>
+    ${opts.cap ? '<span class="cap">C</span>' : ''}${off ? `<span class="slotlbl">${esc(opts.slot)}</span>` : ''}</div>
+    <div class="nm">${p.number ? p.number + ' ' : ''}${esc(p.short)}</div></div>`;
+}
+const FIELD_LINES = `<svg class="lines" viewBox="0 0 100 140" preserveAspectRatio="none"><g fill="none" stroke="rgba(255,255,255,.28)" stroke-width=".5">
+  <rect x="3" y="3" width="94" height="134"/><line x1="3" y1="70" x2="97" y2="70"/><circle cx="50" cy="70" r="11"/>
+  <rect x="24" y="3" width="52" height="20"/><rect x="37" y="3" width="26" height="7"/><rect x="24" y="117" width="52" height="20"/><rect x="37" y="130" width="26" height="7"/>
+  <path d="M41 23 A10 10 0 0 0 59 23"/><path d="M41 117 A10 10 0 0 1 59 117"/></g><circle cx="50" cy="70" r=".9" fill="rgba(255,255,255,.4)"/></svg>`;
+async function loadLineup() { S.lineup = (await call('/api/lineup')).data; }
+function lineupView() {
+  const L = S.lineup;
+  if (!L) { loadLineup().then(() => { S.keepScroll = true; draw(); }); return '<div class="spinner"></div>'; }
+  const chemC = L.chemistry >= 75 ? '#3fd98a' : L.chemistry >= 50 ? '#e3b54a' : '#e5484d';
+  let html = `<div class="xi-top"><div class="seg">${[1, 2].map(n => `<button class="${L.set === n ? 'on' : ''}" onclick="lineupAct({action:'set',n:${n},copy:true})">Склад ${n}${L.sets[n] ? '' : ' <small>авто</small>'}</button>`).join('')}</div>
+    <div class="grow"></div><button class="btn small ghost tap" onclick="lineupAct({action:'auto'})">⚡ Авто</button></div>
+    <div class="xi-meta"><div><span>Сила основи</span><b class="${sc(L.rating)}" style="color:${L.rating >= 80 ? 'var(--goldL)' : '#fff'}">${L.rating}</b></div>
+    <div><span>Зіграність</span><b style="color:${chemC}">${L.chemistry}%</b><div class="chem"><i style="width:${L.chemistry}%;background:${chemC}"></i></div></div></div>
+    <div class="chips" style="margin-top:12px">${L.formations.map(f => `<button class="chip ${f === L.formation ? 'on' : ''}" onclick="lineupAct({action:'formation',formation:'${f}'})">${f}</button>`).join('')}</div>
+    <div class="field">${FIELD_LINES}${L.slots.map(sl => pcCard(sl.player, { pos: `left:${sl.x}%;top:${sl.y}%`, slot: sl.role, eff: sl.player ? sl.player.eff : null, cap: sl.player && sl.player.id === L.captain, click: `slotTap(${sl.i})`, cls: S.selBench ? 'sel' : '' })).join('')}</div>
+    <div class="muted" style="margin:8px 16px 0;font-size:12px;font-weight:700">Торкнись гравця на полі, щоб замінити. Червона позиція = гравець грає не на своєму місці.</div>
+    <div class="section-title">Запасні та резерв <small>${L.bench.length}</small></div>
+    <div class="bench">${L.bench.map(p => pcCard(p, { cls: (p.ok ? '' : 'na') + (S.selBench === p.id ? ' sel' : ''), click: `benchTap(${p.id})` })).join('')}</div>
+    <div class="section-title">Стиль гри</div><div class="chips">${Object.entries(L.styles).map(([k, v]) => `<button class="chip ${k === L.style ? 'on' : ''}" onclick="lineupAct({action:'style',style:'${k}'})">${esc(v)}</button>`).join('')}</div>`;
+  return html;
+}
+async function lineupAct(d) { haptic(); const j = await call('/api/lineup', d); S.lineup = j.data; S.keepScroll = true; closeSheet(); draw(); }
+function benchTap(id) {
+  const p = S.lineup.bench.find(x => x.id === id);
+  if (!p.ok) { openPlayer(id); return; }
+  S.selBench = S.selBench === id ? null : id; haptic();
+  if (S.selBench) toast(`Обери позицію для ${p.short}`);
+  S.keepScroll = true; draw();
+}
+function slotTap(i) {
+  if (S.selBench) { const id = S.selBench; S.selBench = null; lineupAct({ action: 'assign', slot: i, player: id }); return; }
+  const L = S.lineup, sl = L.slots[i], cur = sl.player;
+  const fam = (r) => (L.fam[r] || {})[sl.role] ?? .6;
+  const starters = L.slots.filter(x => x.player && x.i !== i).map(x => ({ ...x.player, where: x.role }));
+  const cands = [...starters, ...L.bench.filter(p => p.ok)].map(p => ({ ...p, f: fam(p.role), e: Math.round(p.skill * fam(p.role)) })).sort((a, b) => b.e - a.e);
+  const famLbl = f => f >= .97 ? ['f1', 'Рідна'] : f >= .85 ? ['f2', 'Знайома'] : ['f3', 'Чужа'];
+  sheet(`<div class="row between"><div><div class="h" style="font-size:24px;font-weight:800;text-transform:uppercase">${esc(sl.role)} · ${esc(L.roles[sl.role] || '')}</div>
+    <div class="muted" style="font-weight:700;font-size:13px">${cur ? `Зараз: ${esc(cur.name)} · ${cur.eff}` : 'Позиція вільна'}</div></div></div>
+    ${cur ? `<div class="btns"><button class="btn small ghost tap" onclick="lineupAct({action:'captain',player:${cur.id}})">${cur.id === L.captain ? '© Капітан' : '© Зробити капітаном'}</button>
+    <button class="btn small ghost tap" onclick="closeSheet();openPlayer(${cur.id})">ℹ️ Профіль</button></div>` : ''}
+    <div class="cp-sec">Хто зіграє на позиції ${esc(sl.role)}</div>
+    ${cands.map(p => { const [fc, fl] = famLbl(p.f); return `<div class="cand tap" onclick="lineupAct({action:'assign',slot:${i},player:${p.id}})">
+      <span class="role">${esc(p.role)}</span><div class="grow"><b class="ellipsis" style="display:block">${p.flag} ${esc(p.name)}</b>
+      <span class="muted" style="font-size:12px;font-weight:700">${p.where ? 'в основі · ' + esc(p.where) : 'запасний'} · ⚡${p.fitness}% · <span class="fam ${fc}">${fl}</span></span></div>
+      <div style="text-align:right"><div class="eff ${sc(p.e)}" style="color:${p.e >= 80 ? 'var(--goldL)' : p.e >= 70 ? '#3fd98a' : '#c8cdd6'}">${p.e}</div><div class="dim" style="font-size:11px;font-weight:700">база ${p.skill}</div></div></div>`; }).join('')}`);
+}
+async function setTac(d) { haptic(); const j = await call('/api/tactics', d); S.team = j.data; S.lineup = null; S.keepScroll = true; draw(); }
 
 /* player sheet */
 async function openPlayer(id) {
@@ -437,9 +495,10 @@ function matchTab() {
     <button class="btn ghost small tap" style="width:100%;margin-top:10px" onclick="playMatch(true)">⏩ Одразу результат</button></div>`;
   if (m.last) html += `<div class="card m16 row" style="padding:12px 16px;margin-top:12px;justify-content:center;gap:12px"><span class="muted" style="font-weight:800;font-size:12px">МИНУЛИЙ:</span>
     ${crest(m.last.home, 28)}<b class="big-num">${m.last.hg}:${m.last.ag}</b>${crest(m.last.away, 28)}</div>`;
-  html += `<div class="section-title">Стартовий склад <small>${m.formation} · ${esc(m.styles[m.style])}</small></div>${pitchHTML(m.lineup, m.formation)}`;
+  html += `<div class="section-title">Стартовий склад <small>${m.formation} · ${esc(m.styles[m.style])}</small></div><div class="field" onclick="S.tab='team';S.sub='xi';S.lineup=null;draw()">${FIELD_LINES}${m.xi.slots.map(sl => pcCard(sl.player, { pos: `left:${sl.x}%;top:${sl.y}%`, slot: sl.role, eff: sl.player ? sl.player.eff : null, cap: sl.player && sl.player.id === m.xi.captain })).join('')}</div>
+    <div class="muted" style="margin:8px 16px 0;font-size:12px;font-weight:700">Зіграність ${m.xi.chemistry}% · торкнись поля, щоб змінити склад</div>`;
   if (m.unavailable.length) html += `<div class="section-title">Не зіграють</div><div class="card m16">${m.unavailable.map(playerRow).join('')}</div>`;
-  html += `<div class="pad" style="margin-top:12px"><button class="btn ghost small tap" style="width:100%" onclick="S.tab='team';S.sub='tactics';draw()">🧠 Змінити тактику</button></div>`;
+  html += `<div class="pad" style="margin-top:12px"><button class="btn ghost small tap" style="width:100%" onclick="S.tab='team';S.sub='xi';S.lineup=null;draw()">⚽ Змінити склад і тактику</button></div>`;
   return html;
 }
 function pitchHTML(lineup, formation) {
@@ -449,7 +508,7 @@ function pitchHTML(lineup, formation) {
   let dots = '';
   Object.entries(lines).forEach(([k, ps]) => ps.forEach((p, i) => {
     const x = (i + 1) / (ps.length + 1) * 100;
-    dots += `<div class="dot" style="left:${x}%;top:${ys[k]}%"><b style="${p.skill >= 80 ? 'background:linear-gradient(135deg,#ffe066,#ff9d00)' : ''}">${p.skill}</b><span>${esc(p.name.split(' ').slice(-1)[0])}</span></div>`;
+    dots += `<div class="dot" style="left:${x}%;top:${ys[k]}%"><b style="${p.skill >= 80 ? 'background:linear-gradient(135deg,#f5d78e,#c9952f)' : ''}">${p.skill}</b><span>${esc(p.name.split(' ').slice(-1)[0])}</span></div>`;
   }));
   return `<div class="pitch"><svg class="lines" viewBox="0 0 100 140" preserveAspectRatio="none"><g stroke="rgba(255,255,255,.35)" stroke-width=".5" fill="none">
   <rect x="3" y="3" width="94" height="134"/><line x1="3" y1="70" x2="97" y2="70"/><circle cx="50" cy="70" r="11"/><rect x="25" y="3" width="50" height="18"/><rect x="25" y="119" width="50" height="18"/></g></svg>${dots}</div>`;

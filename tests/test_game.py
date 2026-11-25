@@ -80,3 +80,29 @@ def test_transfer_window_closed_mid_season():
     other = next(p for p in w.players.values() if p.club_id not in (None, w.club_id))
     ok, msg = tr.buy(w, other.id)
     assert not ok and "вікно" in msg
+
+
+def test_roles_and_custom_lineup():
+    import random
+    from kickoff.game import new_world, start_career
+    from kickoff.game.match import pick_lineup, chemistry, simulate
+    from kickoff.game.roles import ROLES, FORMATIONS
+    from kickoff.web.server import lineup_action, lineup_json
+    w = new_world(1, "T", seed=7)
+    cid = next(c.id for c in w.clubs.values() if c.division == 3)
+    start_career(w, cid)
+    assert all(p.role in ROLES for p in w.players.values())
+    lj = lineup_json(w)
+    assert len(lj["slots"]) == 11 and all(s["player"] for s in lj["slots"])
+    a, b = lj["slots"][1]["player"]["id"], lj["slots"][9]["player"]["id"]
+    ok, _ = lineup_action(w, {"action": "assign", "slot": 1, "player": b})
+    assert ok
+    lu = pick_lineup(w, w.club)
+    assert lu[1][1].id == b and lu[9][1].id == a  # swapped
+    ok, _ = lineup_action(w, {"action": "formation", "formation": "3-5-2"})
+    assert ok and [r for r, _ in pick_lineup(w, w.club)] == [r for r, _, _ in FORMATIONS["3-5-2"]]
+    assert 0 <= chemistry(w, w.club, pick_lineup(w, w.club)) <= 100
+    lineup_action(w, {"action": "auto"})
+    opp = next(c for c in w.division_clubs(3) if c.id != cid)
+    res = simulate(w, w.club, opp, random.Random(1))
+    assert len(res["xi"][0]) == 11

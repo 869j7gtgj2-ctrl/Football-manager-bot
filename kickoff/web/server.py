@@ -13,7 +13,8 @@ from urllib.parse import parse_qsl
 from aiohttp import web
 
 from ..game.leagues import LEAGUES
-from ..game.match import pick_lineup
+from ..game.match import _auto_fill, available_pool, chemistry, formation_slots, pick_lineup, prole
+from ..game.roles import FORMATIONS as SLOTS, familiarity
 from ..game.models import FORMATIONS, POS_NAME, SQUAD_MAX, STYLES, TRAINING
 from ..game.lore import EURO_NAME, LORE, euro_for, generic_story
 from ..game.roles import ROLES, line_of
@@ -171,6 +172,108 @@ def team_json(w) -> dict:
     }
 
 
+def short_name(n: str) -> str:
+    parts = n.split()
+    return parts[-1] if len(parts) > 1 else n
+
+
+def lineup_json(w) -> dict:
+    c = w.club
+    lu = pick_lineup(w, c)
+    layout = SLOTS.get(c.formation) or SLOTS["4-4-2"]
+    by_slot = {}
+    for i, (role, p) in enumerate(lu):
+        by_slot[i] = p
+    used = {p.id for _, p in lu}
+    slots = []
+    for i, (role, x, y) in enumerate(layout):
+        p = by_slot.get(i)
+        pj = None
+        if p:
+            fam = familiarity(prole(p), role)
+            pj = {"id": p.id, "name": p.name, "short": short_name(p.name), "role": prole(p), "skill": p.skill,
+                  "eff": round(p.skill * fam), "fam": round(fam, 2), "flag": flag(p.nation), "fitness": p.fitness,
+                  "number": p.number}
+        slots.append({"i": i, "role": role, "x": x, "y": y, "player": pj})
+    pool = {p.id for p in available_pool(w, c)}
+    others = []
+    for p in sorted(w.squad(c.id), key=lambda p: -p.skill):
+        if p.id in used:
+            continue
+        others.append({"id": p.id, "name": p.name, "short": short_name(p.name), "role": prole(p), "skill": p.skill,
+                       "flag": flag(p.nation), "fitness": p.fitness, "ok": p.id in pool, "injured": p.injured,
+                       "suspended": p.suspended, "resting": p.resting, "number": p.number})
+    chem = chemistry(w, c, lu)
+    custom = bool((w.lineups or {}).get(str(w.active_lineup)))
+    captain = w.captain if w.captain in used else (max(lu, key=lambda t: t[1].skill)[1].id if lu else None)
+    return {"formation": c.formation, "formations": list(SLOTS), "set": w.active_lineup,
+            "sets": {str(k): bool((w.lineups or {}).get(str(k))) for k in (1, 2)}, "custom": custom,
+            "slots": slots, "bench": others, "captain": captain, "chemistry": chem,
+            "rating": round(sum(p.skill * familiarity(prole(p), r) for r, p in lu) / max(1, len(lu))),
+            "style": c.style, "styles": STYLES, "roles": {k: v[1] for k, v in ROLES.items()},
+            "fam": {a: {b: familiarity(a, b) for b in ROLES} for a in ROLES}}
+
+
+def lineup_action(w, b: dict) -> tuple[bool, str | None]:
+    c = w.club
+    act = b.get("action")
+    key = str(w.active_lineup)
+    current = [None] * len(formation_slots(c))
+    for i, (_, p) in enumerate(pick_lineup(w, c)):
+        if i < len(current):
+            current[i] = p.id
+    if act == "assign":
+        i, pid = int(b.get("slot", -1)), int(b.get("player", 0))
+        if not 0 <= i < len(current):
+            return False, "Немає такої позиції."
+        pl = w.players.get(pid)
+        if not pl or pl.club_id != c.id:
+            return False, "Гравця немає в команді."
+        if not pl.available:
+            return False, "Гравець травмований або дискваліфікований."
+        pl.resting = False
+        if pid in current:  # swap two starters
+            j = current.index(pid)
+            current[i], current[j] = current[j], current[i]
+        else:
+            current[i] = pid
+        w.lineups[key] = current
+        return True, None
+    if act == "auto":
+        w.lineups.pop(key, None)
+        return True, "Тренерський штаб зібрав найкращий склад."
+    if act == "captain":
+        pid = int(b.get("player", 0))
+        if pid not in current:
+            return False, "Капітан має бути в основі."
+        w.captain = pid
+        return True, "Новий капітан призначений."
+    if act == "set":
+        n = int(b.get("n", 1))
+        if n not in (1, 2):
+            return False, None
+        w.active_lineup = n
+        if b.get("copy") and not w.lineups.get(str(n)):
+            w.lineups[str(n)] = current
+        return True, None
+    if act == "formation":
+        f = b.get("formation")
+        if f not in SLOTS:
+            return False, "Невідома схема."
+        players = [w.players[pid] for pid in current if pid in w.players]
+        c.formation = f
+        slots = formation_slots(c)
+        chosen = _auto_fill(slots, [None] * len(slots), players)
+        chosen = _auto_fill(slots, chosen, available_pool(w, c))
+        if (w.lineups or {}).get(key):
+            w.lineups[key] = [p.id if p else None for p in chosen]
+        return True, None
+    if act == "style" and b.get("style") in STYLES:
+        c.style = b["style"]
+        return True, None
+    return False, "Невідома дія."
+
+
 def match_preview(w) -> dict:
     nf = next_fixture(w)
     if not nf:
@@ -191,6 +294,7 @@ def match_preview(w) -> dict:
         "away": {**club_json(w, w.clubs[a]), "pos": pos[a], "form": form[a], "rating": team_rating(w, w.clubs[a])},
         "isHome": h == w.club_id, "formation": w.club.formation, "style": w.club.style, "styles": STYLES,
         "lineup": [{"slot": s, **player_json(w, p)} for s, p in lu], "unavailable": unavailable, "last": last,
+        "xi": {k: v for k, v in lineup_json(w).items() if k in ("slots", "captain", "chemistry", "rating")},
         "seasonOver": False,
     }
 
@@ -540,6 +644,22 @@ def create_app(svc: Service, token: str) -> web.Application:
         svc.st.save(w)
         return ok(team_json(w))
 
+    async def get_lineup(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        return ok(lineup_json(w))
+
+    async def post_lineup(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        good, msg = lineup_action(w, await body(request))
+        if good:
+            svc.st.save(w)
+            return ok(lineup_json(w), msg)
+        return fail(msg or "Помилка.")
+
     async def get_club(request):
         w, _ = world(request)
         if w is None:
@@ -580,6 +700,8 @@ def create_app(svc: Service, token: str) -> web.Application:
     r.add_post("/api/offer", offer_action)
     r.add_post("/api/tactics", set_tactics)
     r.add_get("/api/club", get_club)
+    r.add_get("/api/lineup", get_lineup)
+    r.add_post("/api/lineup", post_lineup)
     r.add_post("/api/club", club_action)
 
     async def index(request):
