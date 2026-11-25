@@ -137,7 +137,7 @@ def setup_finances(world: World, club: Club, rng: random.Random) -> None:
     club.ticket_price = int(max(5, 6 + (club.reputation - 55) * 0.9 * (0.6 + money / 4)))
     gate_target = wages * 0.75
     club.stadium = int(max(3000, min(90000, gate_target / (club.ticket_price * 0.85))) // 500 * 500)
-    club.budget = int(wages * rng.uniform(14, 22) * (0.8 + money / 10)) // 100_000 * 100_000
+    club.budget = int(wages * rng.uniform(26, 36) * (0.6 + money / 5)) // 100_000 * 100_000
 
 
 def new_world(user_id: int, manager: str, seed: int | None = None, real: dict | None = None,
