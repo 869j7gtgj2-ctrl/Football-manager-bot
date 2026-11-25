@@ -5,7 +5,8 @@ import datetime as dt
 import random
 
 from .leagues import CLUBS, LEAGUES
-from .models import Club, Player, World
+from .models import Club, Player, World, ensure_roles
+from .roles import assign_roles, line_of, random_role, star_role
 from .names import random_name, random_nation
 
 SQUAD_TEMPLATE = {"GK": 3, "DF": 8, "MF": 8, "FW": 5}
@@ -51,6 +52,7 @@ def make_player(world: World, rng: random.Random, pos: str, level: float, club_i
         nation = random_nation(rng, league_nation(club) if club else "UA")
     p = Player(id=world.new_id(), name=random_name(rng, nation), age=age, pos=pos, skill=skill, potential=potential,
                club_id=club_id, nation=nation, youth=youth)
+    p.role = random_role(rng, pos)
     p.wage = p.fair_wage()
     p.contract = rng.randint(1, 4)
     p.morale = rng.randint(60, 80)
@@ -61,7 +63,9 @@ def fill_squad(world: World, rng: random.Random, club: Club) -> None:
     for pos, n in SQUAD_TEMPLATE.items():
         for _ in range(n):
             p = make_player(world, rng, pos, club.reputation - 3, club.id)
+            p.role = ""
             world.players[p.id] = p
+    assign_roles(world.squad(club.id), rng)
 
 
 def age_from_dob(dob: str | None, rng: random.Random) -> int:
@@ -93,6 +97,9 @@ def real_squad(world: World, rng: random.Random, club: Club, squad: list[dict], 
         p = Player(id=world.new_id(), name=entry["name"], age=age, pos=pos, skill=skill, potential=potential,
                    club_id=club.id, nation=entry.get("nation") or league_nation(club), real=True,
                    number=entry.get("number") or 0)
+        p.role = entry.get("role") or star_role(entry["name"]) or ""
+        if p.role and line_of(p.role) != p.pos:
+            p.role = ""
         p.wage = p.fair_wage()
         p.contract = rng.randint(1, 4)
         p.morale = rng.randint(62, 82)
@@ -166,4 +173,5 @@ def new_world(user_id: int, manager: str, seed: int | None = None, real: dict | 
                 fill_squad(world, rng, club)
             setup_finances(world, club, rng)
     refresh_free_agents(world, rng)
+    ensure_roles(world)
     return world

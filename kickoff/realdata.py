@@ -16,6 +16,8 @@ import unicodedata
 
 import aiohttp
 
+from .game.roles import role_from_text
+
 from .game.leagues import CLUBS, LEAGUES
 from .game.names import COUNTRY, FIFA
 from .storage import Storage
@@ -26,6 +28,13 @@ WIKI = "https://en.wikipedia.org/w/api.php"
 WIKIDATA = "https://www.wikidata.org/w/api.php"
 FD = "https://api.football-data.org/v4"
 MAX_AGE = 7 * 86400
+CRESTS: dict[str, str] = {}  # club key -> crest url, shared with the web layer
+
+
+def load_crests(storage: Storage) -> None:
+    for key, data in storage.real_all().items():
+        if data and data.get("crest"):
+            CRESTS[key] = data["crest"]
 COUNTRY_EN = {1: "Ukraine", 2: "Ukraine", 3: "England", 4: "Spain", 5: "Germany", 6: "Italy", 7: "France"}
 
 
@@ -69,7 +78,8 @@ def fd_squad(team: dict) -> list[dict]:
     for p in team.get("squad") or []:
         if not p.get("name"):
             continue
-        out.append({"name": p["name"], "pos": fd_position(p.get("position")), "dob": p.get("dateOfBirth"),
+        out.append({"name": p["name"], "pos": fd_position(p.get("position")),
+                    "role": role_from_text(p.get("position")) or "", "dob": p.get("dateOfBirth"),
                     "nation": COUNTRY.get(p.get("nationality") or "", "EN"), "number": p.get("shirtNumber") or 0})
     return out
 
@@ -149,13 +159,37 @@ def parse_squad(text: str) -> list[dict]:
 
 
 async def wiki_crest(session, title: str) -> str | None:
+    # pilicense=any: club logos are usually non-free files, which PageImages hides by default
     data = await wiki(session, action="query", prop="pageimages", piprop="thumbnail", pithumbsize=200,
-                      titles=title, redirects=1)
+                      pilicense="any", titles=title, redirects=1)
     pages = data.get("query", {}).get("pages", [])
     for p in pages:
         if p.get("thumbnail"):
             return p["thumbnail"]["source"]
     return None
+
+
+INFOBOX_IMAGE = re.compile(r"\|\s*(?:image|logo|crest|badge)\s*=\s*(?:\[\[)?(?:File:|Image:)?\s*([^|\]\n{}]+?\.(?:svg|png|jpe?g|gif))",
+                           re.I)
+
+
+def infobox_crest(text: str) -> str | None:
+    m = INFOBOX_IMAGE.search(text or "")
+    if not m:
+        return None
+    from urllib.parse import quote
+    return f"https://en.wikipedia.org/wiki/Special:FilePath/{quote(m.group(1).strip().replace(' ', '_'))}?width=200"
+
+
+async def fetch_wiki_crest(session, token: str, lid: int) -> str | None:
+    title = await wiki_title(session, token, lid)
+    if not title:
+        return None
+    crest = await wiki_crest(session, title)
+    if crest:
+        return crest
+    data = await wiki(session, action="parse", page=title, prop="wikitext", redirects=1, section=0)
+    return infobox_crest((data.get("parse") or {}).get("wikitext") or "")
 
 
 async def wikidata_dobs(session, links: list[str]) -> dict[str, str]:
@@ -186,7 +220,7 @@ async def fetch_wiki_club(session, token: str, lid: int) -> dict | None:
     data = await wiki(session, action="parse", page=title, prop="wikitext", redirects=1)
     text = (data.get("parse") or {}).get("wikitext") or ""
     squad = parse_squad(text)
-    crest = await wiki_crest(session, title)
+    crest = await wiki_crest(session, title) or infobox_crest(text)
     links = [p["link"] for p in squad if p.get("link")]
     dobs = await wikidata_dobs(session, links) if links else {}
     for p in squad:
@@ -210,6 +244,18 @@ async def refresh(storage: Storage, fd_key: str, force: bool = False) -> None:
             for name, _, _, _, token in clubs:
                 old, updated = storage.real_get(token)
                 if not force and old and time.time() - updated < MAX_AGE:
+                    if not old.get("crest"):  # fresh squad but no crest yet: fetch the crest only
+                        try:
+                            crest = await fetch_wiki_crest(session, token, lid)
+                        except Exception:
+                            log.exception("crest fetch failed for %s", token)
+                            crest = None
+                        if crest:
+                            old["crest"] = crest
+                            storage.real_put(token, old)
+                            CRESTS[token] = crest
+                            log.info("crest: %s -> %s", name, crest)
+                        await asyncio.sleep(0.5)
                     continue
                 result = None
                 team = match_team(fd_teams.get(lid, []), token) if fd_teams.get(lid) else None
@@ -226,12 +272,15 @@ async def refresh(storage: Storage, fd_key: str, force: bool = False) -> None:
                     result["crest"] = wres.get("crest")
                 if result and (len(result.get("squad") or []) >= 14 or result.get("crest")):
                     storage.real_put(token, result)
+                    if result.get("crest"):
+                        CRESTS[token] = result["crest"]
                     log.info("real data: %s -> %d players (%s)", name, len(result.get("squad") or []),
                              result.get("source"))
                 await asyncio.sleep(1.0)
 
 
 async def refresh_loop(storage: Storage, fd_key: str) -> None:
+    load_crests(storage)
     await asyncio.sleep(5)
     while True:
         try:

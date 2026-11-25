@@ -277,11 +277,39 @@ function drawNewCareer() {
       <div class="ovr"><b class="${sc(c.rating)}">${c.rating}</b></div></div>`).join('') + `</div>`;
   render(html);
 }
+const LINE_UA = { GK: 'Воротар', DF: 'Захист', MF: 'Півзахист', FW: 'Атака' };
+const DIFF_UA = ['', 'Легко', 'Нормально', 'Складно', 'Дуже складно', 'Виживання'];
 function pickClub(id) {
-  const c = S.draft.leagues.flatMap(l => l.clubs).find(x => x.id === id);
-  sheet(`<div class="row" style="gap:16px">${crest(c, 72)}<div><div class="club-name">${esc(c.name)}</div><div class="muted" style="font-weight:700">${c.flag} ${esc(c.leagueShort)} · ${esc(c.city)}</div></div></div>
-  <div class="kv"><div><b>${c.rating}</b><span>Сила складу</span></div><div><b>${money(c.budget)}</b><span>Бюджет</span></div><div><b>${c.rep}</b><span>Репутація</span></div></div>
-  <button class="btn tap" onclick="createCareer(${id})">Очолити ${esc(c.name)} →</button>`);
+  const c = S.draft.leagues.flatMap(l => l.clubs).find(x => x.id === id); const P = c.profile || {};
+  const col = (c.colors && c.colors[0]) || '#3b82f6';
+  const lines = Object.entries(P.lines || {}).map(([k, v]) => `<div class="cp-line"><span>${LINE_UA[k]}</span>
+    <div class="cp-bar"><i style="width:${Math.max(6, Math.min(100, (v - 40) / 55 * 100))}%"></i></div><b class="${sc(v)}">${v}</b></div>`).join('');
+  const stars = (P.stars || []).map(p => `<div class="cp-star"><div class="cp-ovr ${sc(p.skill)}">${p.skill}</div>
+    <div class="grow"><b class="ellipsis" style="display:block">${esc(p.name)}</b><span class="muted">${p.flag} ${p.age} р.${p.number ? ' · №' + p.number : ''}</span></div>
+    <span class="role">${esc(p.role || '')}</span></div>`).join('');
+  const euro = P.euro ? `<div class="cp-euro ${P.euro.code.slice(0, 3).toLowerCase()}">${P.euro.icon} ${esc(P.euro.name)}</div>` : `<div class="cp-euro none">Без єврокубків</div>`;
+  const diff = P.difficulty || 3;
+  sheet(`<div class="cp" style="--club:${col}">
+  <div class="cp-head">${crest(c, 84)}<div class="grow"><div class="club-name">${esc(c.name)}</div>
+    ${P.nick ? `<div class="cp-nick">«${esc(P.nick)}»</div>` : ''}
+    <div class="muted" style="font-weight:700">${c.flag} ${esc(c.leagueShort)} · ${esc(c.city)}</div></div></div>
+  ${euro}
+  <p class="cp-story">${esc(P.story || '')}</p>
+  <div class="kv"><div><b>${c.rating}</b><span>Сила складу</span></div><div><b>${P.rank || '–'}<small>/${P.of || ''}</small></b><span>Ранг у лізі</span></div><div><b>${money(c.budget)}</b><span>Бюджет</span></div></div>
+  <div class="cp-sec">Лінії команди</div><div class="cp-lines">${lines}</div>
+  <div class="cp-sec">Зірки команди</div><div class="cp-stars">${stars}</div>
+  <div class="cp-sec">Клуб</div>
+  <div class="cp-grid">
+    <div><span>Вартість складу</span><b>${money(P.value || 0)}</b></div>
+    <div><span>Зарплати / рік</span><b>${money(P.wages || 0)}</b></div>
+    <div><span>Стадіон</span><b>${(P.stadium || 0).toLocaleString('uk-UA')}</b></div>
+    <div><span>Середній вік</span><b>${P.avgAge || '–'}</b></div>
+    <div><span>Гравців / легіонерів</span><b>${P.size || 0} / ${P.foreign || 0}</b></div>
+    <div><span>Репутація</span><b>${c.rep}</b></div>
+  </div>
+  <div class="cp-board"><div><span>Ціль правління</span><b>Топ-${P.target || '–'}</b></div>
+    <div><span>Складність</span><b class="diff d${diff}">${'●'.repeat(diff)}${'○'.repeat(5 - diff)} ${DIFF_UA[diff]}</b></div></div>
+  <button class="btn tap" onclick="createCareer(${id})">Очолити ${esc(c.name)} →</button></div>`);
 }
 async function createCareer(id) {
   closeSheet(); loading();
@@ -337,7 +365,7 @@ function teamTab() {
 function playerRow(p) {
   const fit = p.fitness >= 85 ? '' : p.fitness >= 65 ? 'mid' : 'low';
   const exp = p.contractYears <= 1;
-  return `<div class="prow tap" onclick="openPlayer(${p.id})"><div class="pava ${p.pos}">${esc(initials(p.name))}<span class="pp">${POS[p.pos]}</span></div>
+  return `<div class="prow tap" onclick="openPlayer(${p.id})"><div class="pava ${p.pos}">${esc(initials(p.name))}<span class="pp">${esc(p.role || POS[p.pos])}</span></div>
   <div class="grow"><div class="pname ellipsis">${p.flag} ${esc(p.name)}</div><div class="tags"><span>${p.age}р</span>
   <span class="tag fit ${fit}">⚡${p.fitness}%</span><span class="tag ${exp ? 'warn' : ''}">📋 ${p.contract}</span>
   ${p.xi ? '<span class="tag xi">XI</span>' : ''}${p.yellows ? `<span class="tag yel">🟨 ${p.yellows}</span>` : ''}
@@ -375,7 +403,7 @@ async function openPlayer(id) {
     <button class="btn small danger tap" style="width:100%;margin-top:10px" onclick="pAct(${id},'release')">Розірвати контракт</button>`;
   else acts = `<button class="btn tap" style="margin-top:14px" onclick="pAct(${id},'buy')">${p.clubInfo ? `Купити за ${money(p.price)}` : `Підписати · бонус ${money(p.signBonus)}`}</button>
     <p class="muted" style="text-align:center;font-weight:700;font-size:13px">Зарплата ${money(p.wageDemand)}/тиж</p>`;
-  sheet(`<div class="row" style="gap:16px"><div class="pava ${p.pos}" style="width:72px;height:72px;font-size:22px;border-radius:22px">${esc(initials(p.name))}<span class="pp">${POS[p.pos]}</span></div>
+  sheet(`<div class="row" style="gap:16px"><div class="pava ${p.pos}" style="width:72px;height:72px;font-size:22px;border-radius:22px">${esc(initials(p.name))}<span class="pp">${esc(p.role || POS[p.pos])}</span></div>
     <div class="grow"><div class="h" style="font-size:21px;font-weight:800">${p.flag} ${esc(p.name)}</div>
     <div class="muted" style="font-weight:700;margin-top:4px">${p.age} років · ${p.clubInfo ? esc(p.clubInfo.name) : 'Вільний агент'}${p.number ? ' · №' + p.number : ''}</div></div>
     <div class="ovr"><b class="${sc(p.skill)}" style="min-width:58px;height:50px;font-size:24px">${p.skill}</b></div></div>
@@ -492,7 +520,7 @@ function liveView() {
     html += `<div class="pad" style="margin-top:14px">${r.fired ? '<button class="btn danger tap" onclick="show(\'home\')">Тебе звільнено</button>' : r.seasonOver ? '<button class="btn gold tap" onclick="S.live=null;endSeason()">🏁 Підсумки сезону</button>' : '<button class="btn tap" onclick="nextMatch()">Далі →</button>'}</div>`;
   }
   html += `<div class="feed" id="${L.done ? 'feedDone' : 'feed'}" data-n="${evs.length}">${evs.map(e => evHTML(e, r)).join('') || '<div class="empty">Матч почався…</div>'}</div>`;
-  if (L.done && r.ratings.length) html += `<div class="section-title">Оцінки гравців</div><div class="card m16 list">${r.ratings.slice(0, 14).map(p => `<div class="item"><span class="ptag">${POS[p.pos]}</span><b class="grow">${esc(p.name)}${p.goals ? ' ' + '⚽'.repeat(p.goals) : ''}</b><b class="big-num" style="color:${p.rating >= 7.5 ? 'var(--green)' : p.rating >= 6.5 ? 'var(--text)' : 'var(--red)'}">${p.rating}</b></div>`).join('')}</div>`;
+  if (L.done && r.ratings.length) html += `<div class="section-title">Оцінки гравців</div><div class="card m16 list">${r.ratings.slice(0, 14).map(p => `<div class="item"><span class="ptag">${esc(p.role || POS[p.pos])}</span><b class="grow">${esc(p.name)}${p.goals ? ' ' + '⚽'.repeat(p.goals) : ''}</b><b class="big-num" style="color:${p.rating >= 7.5 ? 'var(--green)' : p.rating >= 6.5 ? 'var(--text)' : 'var(--red)'}">${p.rating}</b></div>`).join('')}</div>`;
   return html;
 }
 function updateLive() {
@@ -542,7 +570,7 @@ function transferTab() {
     <div class="row" style="gap:6px"><button class="chip on" onclick="offer(${o.id},true)">✓</button><button class="chip" onclick="offer(${o.id},false)">✕</button></div></div></div>`).join('')}</div>`;
   html += `<div class="search">🔎<input id="q" placeholder="Пошук гравця або клубу" value="${esc(S.mq)}" onkeydown="if(event.key==='Enter'){S.mq=this.value;S.mpage=0;go('transfer')}"></div>
     <div class="chips">${f.map(([k, l]) => `<button class="chip ${S.mfilter === k ? 'on' : ''}" onclick="S.mfilter='${k}';S.mpage=0;go('transfer')">${l}</button>`).join('')}</div>
-    <div class="card m16" style="margin-top:8px">${m.items.map(p => `<div class="prow tap" onclick="openPlayer(${p.id})"><div class="pava ${p.pos}">${esc(initials(p.name))}<span class="pp">${POS[p.pos]}</span></div>
+    <div class="card m16" style="margin-top:8px">${m.items.map(p => `<div class="prow tap" onclick="openPlayer(${p.id})"><div class="pava ${p.pos}">${esc(initials(p.name))}<span class="pp">${esc(p.role || POS[p.pos])}</span></div>
     <div class="grow"><div class="pname ellipsis">${p.flag} ${esc(p.name)}</div><div class="tags"><span>${p.age}р</span>${p.clubInfo ? `<span class="row" style="gap:4px">${crest(p.clubInfo, 18)}${esc(p.clubInfo.name)}</span>` : '<span class="tag fit">вільний</span>'}
     <span class="tag" style="color:var(--pink)">пот. ${p.pot}</span></div></div><div class="ovr"><b class="${sc(p.skill)}">${p.skill}</b><small>${p.clubInfo ? money(p.price) : 'free'}</small></div></div>`).join('') || '<div class="empty">Нікого не знайдено</div>'}</div>
     <div class="row pad" style="justify-content:center;margin-top:12px;gap:12px">${m.page > 0 ? `<button class="chip" onclick="S.mpage--;go('transfer')">◀</button>` : ''}<span class="muted" style="font-weight:800">${m.page + 1}/${m.pages}</span>${m.page < m.pages - 1 ? `<button class="chip" onclick="S.mpage++;go('transfer')">▶</button>` : ''}</div>`;

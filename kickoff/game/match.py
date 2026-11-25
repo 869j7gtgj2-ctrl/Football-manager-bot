@@ -4,7 +4,8 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-from .models import FORMATIONS, Club, Player, World
+from .models import Club, Player, World
+from .roles import FORMATIONS, familiarity, line_of
 
 STYLE_MODS = {
     #            att   mid   def   poss  fatigue
@@ -16,41 +17,86 @@ STYLE_MODS = {
 }
 
 
+def prole(p: Player) -> str:
+    return p.role or {"GK": "GK", "DF": "CB", "MF": "CM", "FW": "ST"}.get(p.pos, "CM")
+
+
 def slot_skill(p: Player, slot: str) -> float:
-    if p.pos == slot:
-        return float(p.skill)
-    if slot == "GK" or p.pos == "GK":
-        return p.skill * 0.45
-    return p.skill * 0.78
+    return p.skill * familiarity(prole(p), slot)
 
 
 def condition(p: Player) -> float:
     return (0.72 + 0.28 * p.fitness / 100) * (0.94 + 0.12 * p.morale / 100)
 
 
-def pick_lineup(world: World, club: Club) -> list[tuple[str, Player]]:
-    d, m, f = FORMATIONS.get(club.formation, (4, 4, 2))
+def formation_slots(club: Club) -> list[str]:
+    return [r for r, _, _ in FORMATIONS.get(club.formation) or FORMATIONS["4-4-2"]]
+
+
+def _auto_fill(slots: list[str], chosen: list, pool: list[Player]) -> list:
+    """Global greedy assignment of the best available players to empty slots."""
+    used = {p.id for p in chosen if p}
+    pairs = []
+    for i, slot in enumerate(slots):
+        if chosen[i] is None:
+            for p in pool:
+                if p.id not in used:
+                    pairs.append((slot_skill(p, slot) * condition(p), i, p))
+    pairs.sort(key=lambda t: -t[0])
+    for _, i, p in pairs:
+        if chosen[i] is None and p.id not in used:
+            chosen[i] = p
+            used.add(p.id)
+    return chosen
+
+
+def available_pool(world: World, club: Club) -> list[Player]:
     pool = [p for p in world.squad(club.id) if p.available and not (club.is_user and p.resting)]
-    if len([p for p in pool]) < 11:  # emergency: use resting players too
+    if len(pool) < 11:  # emergency: use resting players too
         pool = [p for p in world.squad(club.id) if p.available]
-    lineup: list[tuple[str, Player]] = []
-    used: set[int] = set()
-    for slot, n in (("GK", 1), ("DF", d), ("MF", m), ("FW", f)):
-        for _ in range(n):
-            cands = [p for p in pool if p.id not in used]
-            if not cands:
-                break
-            best = max(cands, key=lambda p: slot_skill(p, slot) * condition(p))
-            used.add(best.id)
-            lineup.append((slot, best))
-    return lineup
+    return pool
+
+
+def pick_lineup(world: World, club: Club, auto: bool = False) -> list[tuple[str, Player]]:
+    slots = formation_slots(club)
+    pool = available_pool(world, club)
+    chosen: list = [None] * len(slots)
+    if club.is_user and club.id == world.club_id and not auto:
+        ids = (world.lineups or {}).get(str(world.active_lineup)) or []
+        ok = {p.id: p for p in pool}
+        seen = set()
+        for i, pid in enumerate(ids[:len(slots)]):
+            if pid in ok and pid not in seen:
+                chosen[i] = ok[pid]
+                seen.add(pid)
+    _auto_fill(slots, chosen, pool)
+    return [(slots[i], p) for i, p in enumerate(chosen) if p is not None]
+
+
+def chemistry(world: World, club: Club, lineup) -> int:
+    """0-100: positional fit, settled XI and morale."""
+    if not lineup:
+        return 0
+    fit = sum(familiarity(prole(p), s) for s, p in lineup) / len(lineup)
+    if club.id == world.club_id and world.last_xi:
+        last = set(world.last_xi)
+        stable = sum(1 for _, p in lineup if p.id in last) / len(lineup)
+    else:
+        stable = 0.8
+    morale = sum(p.morale for _, p in lineup) / len(lineup) / 100
+    fit_score = max(0.0, (fit - 0.6) / 0.4)
+    return round(100 * (0.6 * fit_score + 0.25 * stable + 0.15 * morale))
+
+
+def chem_mult(chem: int) -> float:
+    return 0.95 + 0.07 * chem / 100
 
 
 def bench(world: World, club: Club, lineup) -> list[Player]:
     used = {p.id for _, p in lineup}
     pool = [p for p in world.squad(club.id) if p.available and p.id not in used]
     pool.sort(key=lambda p: p.skill * condition(p), reverse=True)
-    return pool[:7]
+    return pool[:9]
 
 
 @dataclass
@@ -65,9 +111,10 @@ class TeamState:
     subs: int = 0
     xg: float = 0.0
     ratings: dict = field(default_factory=dict)
+    mult: float = 1.0
 
-    def line(self, slot: str) -> list[float]:
-        return [slot_skill(p, s) * condition(p) for s, p in self.lineup if s == slot]
+    def line(self, line: str) -> list[float]:
+        return [slot_skill(p, s) * condition(p) * self.mult for s, p in self.lineup if line_of(s) == line]
 
     def strengths(self) -> dict:
         def avg(xs, default=30.0):
@@ -84,7 +131,7 @@ class TeamState:
 
 
 def weighted_pick(rng: random.Random, lineup, weights: dict) -> Player | None:
-    items = [(p, weights.get(s, 1) * max(p.skill, 1)) for s, p in lineup]
+    items = [(p, weights.get(line_of(s), 1) * max(p.skill, 1)) for s, p in lineup]
     if not items:
         return None
     total = sum(w for _, w in items)
@@ -109,12 +156,16 @@ def simulate(world: World, home: Club, away: Club, rng: random.Random | None = N
     teams = []
     for c in (home, away):
         lu = pick_lineup(world, c)
-        teams.append(TeamState(club=c, lineup=lu, bench=bench(world, c, lu)))
+        mult = chem_mult(chemistry(world, c, lu))
+        if c.id == world.club_id and world.captain in {p.id for _, p in lu}:
+            mult *= 1.01
+        teams.append(TeamState(club=c, lineup=lu, bench=bench(world, c, lu), mult=mult))
     h, a = teams
     events: list[dict] = []
     yellows: dict[int, int] = {}
     poss_sum = 0.0
     minutes_played: dict[int, int] = {p.id: 0 for t in teams for _, p in t.lineup}
+    xi = [[p.id for _, p in t.lineup] for t in teams]
     starts = {p.id: 0 for t in teams for _, p in t.lineup}
     goals_by: dict[int, int] = {}
     assists_by: dict[int, int] = {}
@@ -259,13 +310,16 @@ def simulate(world: World, home: Club, away: Club, rng: random.Random | None = N
         "yellows": yellows, "reds": reds, "injuries": injuries, "motm": motm,
         "fatigue": {0: STYLE_MODS.get(home.style, STYLE_MODS["balanced"])[4],
                     1: STYLE_MODS.get(away.style, STYLE_MODS["balanced"])[4]},
-        "lineups": [[p.id for _, p in t.lineup] for t in teams],
+        "lineups": [[p.id for _, p in t.lineup] for t in teams], "xi": xi,
     }
 
 
 def apply_result(world: World, res: dict, rng: random.Random) -> None:
     """Persist match effects on players: stats, fitness, cards, injuries, morale."""
     home, away = world.clubs[res["home"]], world.clubs[res["away"]]
+    for side, c in enumerate((home, away)):
+        if c.id == world.club_id and res.get("xi"):
+            world.last_xi = list(res["xi"][side])
     for pid, mins in res["minutes"].items():
         p = world.players.get(int(pid))
         if p is None:

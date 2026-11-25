@@ -15,6 +15,9 @@ from aiohttp import web
 from ..game.leagues import LEAGUES
 from ..game.match import pick_lineup
 from ..game.models import FORMATIONS, POS_NAME, SQUAD_MAX, STYLES, TRAINING
+from ..game.lore import EURO_NAME, LORE, euro_for, generic_story
+from ..game.roles import ROLES, line_of
+from ..realdata import CRESTS
 from ..game.season import fair_ticket, next_fixture, position, season_over, sponsor_income, table, wage_bill
 from ..game.transfers import asking_price, upgrade_cost, wage_demand
 from ..meta import MAX_SLOTS, SHOP, SLOT_PRICE
@@ -53,7 +56,8 @@ def season_label(season: int) -> str:
 
 
 def club_json(w, c) -> dict:
-    return {"id": c.id, "name": c.name, "city": c.city, "colors": c.colors, "crest": c.crest, "rep": c.reputation,
+    return {"id": c.id, "name": c.name, "city": c.city, "colors": c.colors, "crest": c.crest or CRESTS.get(c.key, ""),
+            "rep": c.reputation,
             "league": c.division, "leagueShort": LEAGUES[c.division]["short"], "country": c.country,
             "flag": LEAGUES[c.division]["flag"], "key": c.key}
 
@@ -65,12 +69,42 @@ def player_json(w, p, xi: set | None = None) -> dict:
             "yellows": p.yellows, "injured": p.injured, "suspended": p.suspended, "listed": p.listed,
             "resting": p.resting, "youth": p.youth, "nation": p.nation, "flag": flag(p.nation), "number": p.number,
             "apps": p.apps, "goals": p.goals, "assists": p.assists, "rating": p.avg_rating, "real": p.real,
-            "xi": bool(xi and p.id in xi), "club": p.club_id}
+            "xi": bool(xi and p.id in xi), "club": p.club_id, "role": p.role}
 
 
 def team_rating(w, club) -> int:
-    lu = pick_lineup(w, club)
+    lu = pick_lineup(w, club, auto=True)
     return round(sum(p.skill for _, p in lu) / max(1, len(lu)))
+
+
+def line_ratings(w, club) -> dict:
+    lu = pick_lineup(w, club, auto=True)
+    out = {}
+    for line in ("GK", "DF", "MF", "FW"):
+        xs = [p.skill for s, p in lu if line_of(s) == line]
+        out[line] = round(sum(xs) / len(xs)) if xs else 0
+    return out
+
+
+def club_profile(w, c, rank: int, total: int) -> dict:
+    squad = w.squad(c.id)
+    stars = sorted(squad, key=lambda p: -p.skill)[:5]
+    nick, story = LORE.get(c.key, (None, None))
+    league = LEAGUES[c.division]
+    euro = euro_for(c.division, rank)
+    target = min(total, rank + 1)
+    return {
+        "lines": line_ratings(w, c), "avgAge": round(sum(p.age for p in squad) / max(1, len(squad)), 1),
+        "value": sum(p.value() for p in squad), "wages": sum(p.wage for p in squad) * 52, "stadium": c.stadium,
+        "size": len(squad), "foreign": sum(1 for p in squad if p.nation != league.get("nation")),
+        "stars": [{"name": p.name, "role": p.role, "skill": p.skill, "flag": flag(p.nation), "age": p.age,
+                   "number": p.number} for p in stars],
+        "nick": nick, "story": story or generic_story(c.name, c.city, rank, total, league["short"]),
+        "euro": {"code": euro, "name": EURO_NAME[euro][0], "icon": EURO_NAME[euro][1]} if euro else None,
+        "rank": rank, "of": total, "target": target,
+        "difficulty": 1 if rank <= 2 else 2 if rank <= total // 3 else 3 if rank <= total * 2 // 3 else 4 if rank < total - 2 else 5,
+        "formation": c.formation,
+    }
 
 
 def career_card(w) -> dict:
@@ -176,7 +210,7 @@ def match_result_json(w, res: dict) -> dict:
     for pid, r in res["ratings"].items():
         p = w.players.get(int(pid))
         if p and p.club_id == w.club_id:
-            ratings.append({"name": p.name, "pos": p.pos, "rating": r, "goals": res["goals_by"].get(pid, 0)})
+            ratings.append({"name": p.name, "pos": p.pos, "role": p.role, "rating": r, "goals": res["goals_by"].get(pid, 0)})
     ratings.sort(key=lambda x: -x["rating"])
     motm = w.players.get(int(res["motm"])) if res.get("motm") is not None else None
     return {"home": club_json(w, w.clubs[res["home"]]), "away": club_json(w, w.clubs[res["away"]]),
@@ -365,10 +399,11 @@ def create_app(svc: Service, token: str) -> web.Application:
         w = svc.draft_world(request["uid"], slot, prof.name)
         leagues = []
         for lid, meta in LEAGUES.items():
-            clubs = sorted(w.division_clubs(lid), key=lambda c: -c.reputation)
+            clubs = sorted(w.division_clubs(lid), key=lambda c: -team_rating(w, c) * 100 - c.reputation)
             leagues.append({"id": lid, "name": meta["name"], "short": meta["short"], "flag": meta["flag"],
-                            "clubs": [{**club_json(w, c), "rating": team_rating(w, c), "budget": c.budget}
-                                      for c in clubs]})
+                            "clubs": [{**club_json(w, c), "rating": team_rating(w, c), "budget": c.budget,
+                                       "profile": club_profile(w, c, i + 1, len(clubs))}
+                                      for i, c in enumerate(clubs)]})
         return ok({"slot": slot, "leagues": leagues})
 
     async def career_create(request):

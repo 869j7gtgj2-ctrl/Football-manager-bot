@@ -9,15 +9,7 @@ POSITIONS = ("GK", "DF", "MF", "FW")
 POS_UA = {"GK": "ВР", "DF": "ЗХ", "MF": "ПЗ", "FW": "НП"}
 POS_NAME = {"GK": "Воротарі", "DF": "Захисники", "MF": "Півзахисники", "FW": "Нападники"}
 
-FORMATIONS = {
-    "4-4-2": (4, 4, 2),
-    "4-3-3": (4, 3, 3),
-    "4-2-3-1": (4, 5, 1),
-    "3-5-2": (3, 5, 2),
-    "5-3-2": (5, 3, 2),
-    "4-5-1": (4, 5, 1),
-    "3-4-3": (3, 4, 3),
-}
+from .roles import FORMATIONS  # noqa: E402  (real-football formations with pitch slots)
 
 STYLES = {
     "attacking": "Атакувальний",
@@ -67,6 +59,7 @@ class Player:
     career_apps: int = 0
     real: bool = False
     number: int = 0
+    role: str = ""
 
     @property
     def avg_rating(self) -> float:
@@ -162,6 +155,10 @@ class World:
     next_id: int = 1
     fired: bool = False
     slot: int = 0
+    lineups: dict = field(default_factory=dict)  # "1"/"2" -> list of 11 player ids (None = auto) in slot order
+    active_lineup: int = 1
+    captain: Optional[int] = None
+    last_xi: list = field(default_factory=list)
     season_finances: dict = field(default_factory=lambda: {"income": 0, "wages": 0, "transfers_in": 0, "transfers_out": 0})
 
     # ---------- helpers ----------
@@ -215,4 +212,20 @@ class World:
         offers = [Offer(**o) for o in d.pop("offers")]
         w = cls(**d)
         w.clubs, w.players, w.fixtures, w.results, w.offers = clubs, players, fixtures, results, offers
+        ensure_roles(w)
         return w
+
+
+def ensure_roles(world: "World") -> None:
+    """Old saves / generated players: give every player a real-football position."""
+    import random as _r
+    from .roles import assign_roles
+    missing = [p for p in world.players.values() if not p.role]
+    if not missing:
+        return
+    rng = _r.Random(world.user_id * 31 + world.season)
+    by_club: dict = {}
+    for p in missing:
+        by_club.setdefault(p.club_id, []).append(p)
+    for ps in by_club.values():
+        assign_roles(ps, rng)

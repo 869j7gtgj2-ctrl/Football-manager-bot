@@ -292,3 +292,37 @@ table.lt{width:100%;border-collapse:collapse;font-size:14px}
 .opt span{font-size:13px;color:var(--muted)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+
+/* club profile sheet */
+.cp{position:relative}
+.cp::before{content:"";position:absolute;left:-20px;right:-20px;top:-34px;height:170px;z-index:-1;pointer-events:none;
+  background:radial-gradient(70% 100% at 20% 0%,color-mix(in srgb,var(--club) 45%,transparent),transparent 70%)}
+.cp-head{display:flex;align-items:center;gap:16px}
+.cp-nick{font-weight:800;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold);margin:2px 0 4px}
+.cp-euro{display:inline-flex;align-items:center;gap:8px;margin-top:14px;padding:7px 12px;border-radius:10px;font-weight:800;font-size:13px;
+  letter-spacing:.02em;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05)}
+.cp-euro.ucl{background:linear-gradient(100deg,#0b1f6b,#1a3fb8);border-color:#4f74ff;color:#fff;box-shadow:0 6px 20px -8px #3b63ff}
+.cp-euro.uel{background:linear-gradient(100deg,#5a2400,#c25400);border-color:#ff8a2b;color:#fff}
+.cp-euro.uec{background:linear-gradient(100deg,#023a20,#0b7a45);border-color:#2fd38a;color:#fff}
+.cp-euro.none{color:var(--muted)}
+.cp-story{margin:12px 0 4px;font-size:14.5px;line-height:1.5;color:#c9cee8}
+.kv b small{font-size:12px;color:var(--muted)}
+.cp-sec{font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:18px 0 10px}
+.cp-lines{display:grid;gap:9px}
+.cp-line{display:grid;grid-template-columns:86px 1fr 34px;align-items:center;gap:10px;font-weight:700;font-size:14px}
+.cp-line b{text-align:right;font-family:Unbounded;font-size:15px}
+.cp-bar{height:8px;border-radius:6px;background:rgba(255,255,255,.07);overflow:hidden}
+.cp-bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,color-mix(in srgb,var(--club) 70%,#fff 0%),var(--gold))}
+.cp-stars{display:grid;gap:8px}
+.cp-star{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.cp-star span{font-size:12.5px;font-weight:700}
+.cp-ovr{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;font-family:Unbounded;font-weight:800;font-size:15px;
+  background:rgba(255,255,255,.06);flex:none}
+.role{flex:none;min-width:42px;text-align:center;padding:4px 8px;border-radius:8px;font-weight:800;font-size:12px;letter-spacing:.04em;
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14)}
+.cp-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cp-grid>div,.cp-board>div{padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.cp-grid span,.cp-board span{display:block;font-size:12px;font-weight:700;color:var(--muted)}
+.cp-grid b,.cp-board b{font-size:16px}
+.cp-board{display:grid;grid-template-columns:1fr 1.4fr;gap:8px;margin:12px 0 16px}
+.diff{font-size:14px!important;white-space:nowrap} .diff.d1,.diff.d2{color:var(--green)} .diff.d3{color:var(--gold)} .diff.d4,.diff.d5{color:var(--red)}
