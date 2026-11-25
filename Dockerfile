@@ -4,5 +4,4 @@ ENV PYTHONUNBUFFERED=1 DATABASE_PATH=/data/kickoff.db
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-VOLUME ["/data"]
 CMD ["python", "main.py"]
