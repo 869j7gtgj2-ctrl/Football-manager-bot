@@ -78,7 +78,7 @@ def player_json(w, p, xi: set | None = None) -> dict:
             "yellows": p.yellows, "injured": p.injured, "suspended": p.suspended, "listed": p.listed,
             "resting": p.resting, "youth": p.youth, "nation": p.nation, "flag": flag(p.nation), "number": p.number,
             "apps": p.apps, "goals": p.goals, "assists": p.assists, "rating": p.avg_rating, "real": p.real,
-            "xi": bool(xi and p.id in xi), "club": p.club_id, "role": p.role}
+            "xi": bool(xi and p.id in xi), "club": p.club_id, "role": p.role, "loan": bool(p.loan)}
 
 
 def team_rating(w, club) -> int:
@@ -329,6 +329,57 @@ def draw_json(w) -> dict | None:
             "ties": ties}
 
 
+def calendar_json(w) -> dict:
+    from ..game.schedule import calendar
+    comps = {k: {"key": k, "name": c["name"], "icon": c["icon"]} for k, c in (w.cups or {}).items()}
+    comps["league"] = {"key": "league", "name": LEAGUES[w.club.division]["short"], "icon": "📊"}
+    out = []
+    for e in calendar(w):
+        d = {**e, "comp": comps.get(e["comp"], comps["league"])}
+        d["home"] = club_json(w, w.clubs[e["home"]]) if e["home"] else None
+        d["away"] = club_json(w, w.clubs[e["away"]]) if e["away"] else None
+        if e["played"]:
+            home = e["home"] == w.club_id
+            gf, ga = (e["hg"], e["ag"]) if home else (e["ag"], e["hg"])
+            res = "W" if gf > ga else "L" if gf < ga else "D"
+            if res == "D" and e.get("pens"):
+                ph, pa = e["pens"]
+                res = "W" if (ph > pa) == home else "L"
+            d["res"] = res
+        d["isHome"] = e["home"] == w.club_id
+        out.append(d)
+    pl = [e for e in out if e.get("res")]
+    return {"items": out, "played": len(pl), "total": len([e for e in out if not e.get("tbd")]),
+            "w": sum(e["res"] == "W" for e in pl), "d": sum(e["res"] == "D" for e in pl),
+            "l": sum(e["res"] == "L" for e in pl), "season": season_label(w.season)}
+
+
+def totw_json(w) -> dict | None:
+    t = w.totw
+    if not t or t.get("season") != w.season:
+        return None
+    xi = []
+    for x in t["xi"]:
+        p = w.players.get(x["pid"])
+        if not p:
+            continue
+        c = w.clubs.get(x["club"])
+        xi.append({"id": p.id, "name": p.name, "pos": x["pos"], "rating": x["rating"], "skill": p.skill,
+                   "flag": flag(p.nation), "club": club_json(w, c) if c else None, "mine": x["club"] == w.club_id,
+                   "star": p.id == t.get("star")})
+    top = sorted(((n, c) for n, c in w.records.get("totw", {}).items()), key=lambda kv: -kv[1])[:5]
+    return {"round": t["round"], "xi": xi, "leaders": [{"name": n, "n": c} for n, c in top]}
+
+
+def loans_json(w) -> dict:
+    from ..game import loans as ln
+
+    def row(p, other):
+        return {**player_json(w, p), "other": club_json(w, w.clubs[other]) if other in w.clubs else None}
+    return {"out": [row(p, p.club_id) for p in ln.loaned_out(w)],
+            "in": [row(p, p.loan) for p in ln.loaned_in(w)], "window": w.transfer_window_open()}
+
+
 def cups_json(w) -> dict:
     out = []
     for key, comp in (w.cups or {}).items():
@@ -575,7 +626,14 @@ def player_detail(w, pid: int) -> dict:
     if not d["mine"] and p.club_id:
         d["willJoin"], d["joinWhy"] = tr.will_join(w, pid)
     d["ask"] = p.ask
+    from ..game import loans as ln
+    if p.loan:
+        d["loanFrom"] = club_json(w, w.clubs[p.loan]) if p.loan in w.clubs else None
+    if not d["mine"] and p.club_id and not p.loan:
+        d["loanFee"] = ln.loan_fee(p)
+        d["canLoan"], d["loanWhy"] = ln.can_loan_in(w, pid)
     if d["mine"]:
+        d["canLoanOut"] = not p.loan and d["window"]
         d["trainCost"] = tr.training_cost(p)
         d["canTrain"] = p.trained != w.season * 1000 + w.round and p.skill < min(99, p.potential)
     return d
@@ -896,6 +954,25 @@ def create_app(svc: Service, token: str) -> web.Application:
         svc.st.save(w)
         return ok(finance_json(w), msg)
 
+    async def get_calendar(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        cupsmod.ensure(w)
+        return ok(calendar_json(w))
+
+    async def get_totw(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        return ok(totw_json(w) or {"empty": True})
+
+    async def get_loans(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        return ok(loans_json(w))
+
     async def get_ballon(request):
         w, _ = world(request)
         if w is None:
@@ -945,7 +1022,7 @@ def create_app(svc: Service, token: str) -> web.Application:
                "relegated": [w.clubs[c].name for c in s.get("relegated", [])],
                "retired": s.get("retired", []), "left": s.get("left", []),
                "youth": [w.players[i].name for i in s.get("youth", []) if i in w.players],
-               "awards": s.get("awards"), "sponsorNews": s.get("sponsor") or [],
+               "awards": s.get("awards"), "sponsorNews": (s.get("sponsor") or []) + (s.get("loans") or []),
                "ballon": {**s["ballon"], "top": [{**t, "club": club_json(w, w.clubs[t["club"]]), "flag": flag(t["nation"])}
                                                  for t in s["ballon"]["top"]]} if s.get("ballon") else None,
                "champions": [{"league": LEAGUES[int(d)]["short"], "club": w.clubs[i["champion"]].name}
@@ -979,6 +1056,15 @@ def create_app(svc: Service, token: str) -> web.Application:
         w, prof = world(request)
         b = await body(request)
         pid, action = int(b.get("id", 0)), b.get("action")
+        from ..game import loans as ln
+        if w is not None and pid in w.players and action in ("loan_in", "loan_out"):
+            good, msg = (ln.loan_in if action == "loan_in" else ln.loan_out)(w, pid)
+            if good:
+                svc.st.save(w)
+            return ok(player_detail(w, pid), msg) if good else fail(msg)
+        if w is not None and pid in w.players and w.players[pid].loan and action in (
+                "list", "renew", "release", "quicksell", "setlist"):
+            return fail("Гравець в оренді: це можна зробити лише з власними гравцями.")
         if w is not None and pid in w.players and action in ("bid", "setlist", "train"):
             extra = None
             if action == "bid":
@@ -1120,6 +1206,9 @@ def create_app(svc: Service, token: str) -> web.Application:
     r.add_get("/api/finance", get_finance)
     r.add_post("/api/sponsor", sponsor_sign)
     r.add_get("/api/ballon", get_ballon)
+    r.add_get("/api/calendar", get_calendar)
+    r.add_get("/api/totw", get_totw)
+    r.add_get("/api/loans", get_loans)
     r.add_post("/api/weekly", weekly_claim)
     r.add_post("/api/friendly", friendly)
     r.add_get("/api/table", get_table)

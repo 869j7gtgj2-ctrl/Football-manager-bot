@@ -62,6 +62,7 @@ class Player:
     role: str = ""
     ask: int = 0          # asking price when the user lists the player
     trained: int = -1     # season*1000+round of the last paid individual training
+    loan: int = 0         # parent club id while the player is out on loan (0 = not on loan)
 
     @property
     def avg_rating(self) -> float:
@@ -176,6 +177,7 @@ class World:
     sponsor: dict = field(default_factory=dict)    # current general sponsor contract
     sponsor_offers: list = field(default_factory=list)
     ballon: list = field(default_factory=list)     # Golden Ball history
+    totw: dict = field(default_factory=dict)       # team of the week of the last league round
     staff: dict = field(default_factory=dict)  # role -> {"name","nation","level","age"}
     staff_market: dict = field(default_factory=dict)
     challenge: dict = field(default_factory=dict)  # weekly challenge progress for this career

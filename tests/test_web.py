@@ -163,3 +163,54 @@ async def test_finance_sponsor_and_ballon(tmp_path):
         assert len(s["ballon"]["top"]) == 10 and s["ballon"]["top"][0]["points"] >= s["ballon"]["top"][9]["points"]
         b = (await (await c.get("/api/ballon", headers=h)).json())["data"]
         assert b["history"][0]["year"] == s["ballon"]["year"]
+
+
+@pytest.mark.asyncio
+async def test_calendar_totw_and_loans(tmp_path):
+    app = create_app(Service(Storage(str(tmp_path / "db.sqlite"))), TOKEN)
+    async with TestClient(TestServer(app)) as c:
+        h = {"X-Init-Data": signed({"id": 22, "first_name": "Ілля"})}
+        draft = (await (await c.post("/api/career/draft", json={"slot": 0}, headers=h)).json())["data"]
+        club = next(x for l in draft["leagues"] for x in l["clubs"] if x["name"] == "Полтава")
+        await c.post("/api/career/create", json={"slot": 0, "club_id": club["id"]}, headers=h)
+        cal = (await (await c.get("/api/calendar", headers=h)).json())["data"]
+        assert cal["played"] == 0 and cal["total"] >= 20 and sum(1 for e in cal["items"] if e.get("next")) == 1
+        assert (await (await c.get("/api/totw", headers=h)).json())["data"]["empty"]
+        # loan a fringe player in from another club
+        got = None
+        for page in range(6):
+            m = (await (await c.get(f"/api/market?f=YT&page={page}&q=", headers=h)).json())["data"]
+            for row in m["items"]:
+                d = (await (await c.get(f"/api/player?id={row['id']}", headers=h)).json())["data"]
+                if d.get("canLoan"):
+                    got = d
+                    break
+            if got:
+                break
+        assert got, "no loanable player on the market"
+        j = await (await c.post("/api/player", json={"id": got["id"], "action": "loan_in"}, headers=h)).json()
+        assert j["ok"] and j["data"]["mine"] and j["data"]["loanFrom"]["id"] == got["clubInfo"]["id"]
+        j = await (await c.post("/api/player", json={"id": got["id"], "action": "quicksell"}, headers=h)).json()
+        assert not j["ok"]
+        # send one of ours out
+        team = (await (await c.get("/api/team", headers=h)).json())["data"]
+        squad = [p for g in team["groups"] for p in g["players"] if not p.get("loan")]
+        squad.sort(key=lambda p: p["skill"])
+        youngest = squad[len(squad) // 3]
+        j = await (await c.post("/api/player", json={"id": youngest["id"], "action": "loan_out"}, headers=h)).json()
+        assert j["ok"], j
+        loans = (await (await c.get("/api/loans", headers=h)).json())["data"]
+        assert len(loans["in"]) == 1 and len(loans["out"]) == 1
+        for _ in range(3):
+            await c.post("/api/match/play", json={"fast": True}, headers=h)
+        cal = (await (await c.get("/api/calendar", headers=h)).json())["data"]
+        assert cal["played"] >= 3 and cal["w"] + cal["d"] + cal["l"] == cal["played"]
+        t = (await (await c.get("/api/totw", headers=h)).json())["data"]
+        assert len(t["xi"]) == 11 and sum(p["star"] for p in t["xi"]) == 1
+        while True:
+            j = await (await c.post("/api/match/play", json={"fast": True}, headers=h)).json()
+            if not j["ok"] or j["data"]["seasonOver"]:
+                break
+        await c.post("/api/season/end", json={}, headers=h)
+        loans = (await (await c.get("/api/loans", headers=h)).json())["data"]
+        assert not loans["in"] and not loans["out"]

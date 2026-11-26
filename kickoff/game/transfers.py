@@ -25,6 +25,8 @@ def wage_demand(world: World, pid: int) -> int:
 
 def will_join(world: World, pid: int) -> tuple[bool, str]:
     p = world.players[pid]
+    if p.loan:
+        return False, f"{p.name} грає тут в оренді: трансфер неможливий до кінця сезону."
     lvl = club_level(world.club.reputation)
     if p.skill > lvl + 14:
         return False, f"{p.name} вважає, що {world.club.name} недостатньо амбітний клуб для нього."

@@ -476,7 +476,7 @@ async function createCareer(id) {
 async function openCareer() { haptic(); S.view = 'career'; S.tab = 'team'; S.sub = 'xi'; S.lineup = null; loading(); await loadTab(); }
 async function loadTab() {
   if (S.tab === 'team') { S.team = (await call('/api/team')).data; S.lineup = null; }
-  if (S.tab === 'match') { S.match = (await call('/api/match')).data; S.team = S.team || (await call('/api/team')).data; }
+  if (S.tab === 'match') { S.match = (await call('/api/match')).data; S.team = S.team || (await call('/api/team')).data; S.cal = (await call('/api/calendar')).data; }
   if (S.tab === 'transfer') S.market = (await call(`/api/market?f=${S.mfilter}&page=${S.mpage}&q=${encodeURIComponent(S.mq)}`)).data;
   if (S.tab === 'table') {
     const other = S.tview === 'other';
@@ -530,7 +530,7 @@ function playerRow(p) {
   <span class="tag fit ${fit}">⚡${p.fitness}%</span><span class="tag ${exp ? 'warn' : ''}">📋 ${p.contract}</span>
   ${p.xi ? '<span class="tag xi">XI</span>' : ''}${p.yellows ? `<span class="tag yel">🟨 ${p.yellows}</span>` : ''}
   ${p.injured ? `<span class="tag bad">🤕 ${p.injured}</span>` : ''}${p.suspended ? '<span class="tag bad">🟥</span>' : ''}
-  ${p.listed ? '<span class="tag warn">🏷</span>' : ''}${p.resting ? '<span class="tag">💤</span>' : ''}</div></div>
+  ${p.listed ? '<span class="tag warn">🏷</span>' : ''}${p.resting ? '<span class="tag">💤</span>' : ''}${p.loan ? '<span class="tag loan">🔁 оренда</span>' : ''}</div></div>
   <div class="ovr"><b class="${sc(p.skill)}">${p.skill}</b><small>${money(p.value)}</small></div></div>`;
 }
 function academyView() {
@@ -633,12 +633,16 @@ async function openPlayer(id) {
   haptic();
   const p = (await call('/api/player?id=' + id)).data;
   let acts = '';
-  if (p.mine) acts = `${p.canTrain ? `<button class="btn small gold tap" style="width:100%;margin-top:12px" onclick="pAct(${id},'train')">🏋️ Індивідуальне тренування +1 · ${p.trainCost} <span class="coin"></span></button>` : ''}
+  const loanBanner = p.loanFrom ? `<div class="loan-ban">🔁 В оренді з <b>${esc(p.loanFrom.name)}</b> до кінця сезону</div>` : '';
+  if (p.mine && p.loanFrom) acts = `${loanBanner}<div class="btns"><button class="btn small ghost tap" onclick="pAct(${id},'rest')">${p.resting ? '✅ Повернути' : '💤 Не ставити'}</button></div>`;
+  else if (p.mine) acts = `${p.canTrain ? `<button class="btn small gold tap" style="width:100%;margin-top:12px" onclick="pAct(${id},'train')">🏋️ Індивідуальне тренування +1 · ${p.trainCost} <span class="coin"></span></button>` : ''}
     <div class="btns"><button class="btn small ghost tap" onclick="pAct(${id},'rest')">${p.resting ? '✅ Повернути' : '💤 Не ставити'}</button>
     <button class="btn small ghost tap" onclick="${p.listed ? `pSetList(${id},0)` : `listSheet(${id},${p.value})`}">${p.listed ? `🏷 Зняти (${money(p.ask)})` : '🏷 Продати за ціною'}</button>
     <button class="btn small ghost tap" onclick="pAct(${id},'renew')">📝 Продовжити</button><button class="btn small ghost tap" onclick="pAct(${id},'quicksell')">⚡ Продати</button></div>
+    ${p.canLoanOut ? `<button class="btn small ghost tap" style="width:100%;margin-top:10px" onclick="pAct(${id},'loan_out')">✈️ Віддати в оренду до кінця сезону</button>` : ''}
     <button class="btn small danger tap" style="width:100%;margin-top:10px" onclick="pAct(${id},'release')">Розірвати контракт</button>`;
-  else if (p.clubInfo) acts = negotiateHTML(p);
+  else if (p.clubInfo && p.loanFrom) acts = loanBanner;
+  else if (p.clubInfo) acts = negotiateHTML(p) + (p.window ? `<button class="btn small ghost tap" style="width:100%;margin-top:10px" ${p.canLoan ? '' : 'disabled'} onclick="pAct(${id},'loan_in')">🔁 Орендувати до кінця сезону · ${money(p.loanFee)}</button>${p.canLoan ? '' : `<p class="muted" style="text-align:center;font-weight:700;font-size:12px;margin:6px 0 0">${esc(p.loanWhy)}</p>`}` : '');
   else acts = `<button class="btn tap" style="margin-top:14px" onclick="pAct(${id},'buy')">Підписати · бонус ${money(p.signBonus)}</button>
     <p class="muted" style="text-align:center;font-weight:700;font-size:13px">Зарплата ${money(p.wageDemand)}/тиж</p>`;
   sheet(`<div class="row" style="gap:16px"><div class="pava ${p.pos}" style="width:72px;height:72px;font-size:22px;border-radius:22px">${esc(initials(p.name))}<span class="pp">${esc(p.role || POS[p.pos])}</span></div>
@@ -711,6 +715,7 @@ function matchTab() {
     <button class="btn ghost small tap" style="width:100%;margin-top:10px" onclick="playMatch(true)">⏩ Одразу результат</button></div>`;
   if (m.last) html += `<div class="card m16 row" style="padding:12px 16px;margin-top:12px;justify-content:center;gap:12px"><span class="muted" style="font-weight:800;font-size:12px">МИНУЛИЙ:</span>
     ${crest(m.last.home, 28)}<b class="big-num">${m.last.hg}:${m.last.ag}</b>${crest(m.last.away, 28)}</div>`;
+  html += fixtureStrip();
   html += dossierHTML(m);
   html += `<div class="section-title">Стартовий склад <small>${m.formation} · ${esc(m.styles[m.style])}</small></div><div class="field" onclick="S.tab='team';S.sub='xi';S.lineup=null;draw()">${FIELD_LINES}${m.xi.slots.map(sl => pcCard(sl.player, { pos: `left:${sl.x}%;top:${sl.y}%`, slot: sl.role, eff: sl.player ? sl.player.eff : null, cap: sl.player && sl.player.id === m.xi.captain })).join('')}</div>
     <div class="muted" style="margin:8px 16px 0;font-size:12px;font-weight:700">Зіграність ${m.xi.chemistry}% · торкнись поля, щоб змінити склад</div>`;
@@ -1070,7 +1075,7 @@ function clubTab() {
     <div class="stepper"><button onclick="clubAct({ticket:-1})">−</button><b class="big-num">€${c.ticket}</b><button onclick="clubAct({ticket:1})">+</button></div></div>
     <div class="section-title">Інфраструктура</div><div class="card m16 list">${Object.entries(up).map(([k, [i, l]]) => `<div class="item"><span style="font-size:26px">${i}</span><b class="grow">${l}</b>${c.upgrades[k] ? `<button class="btn small violet tap" onclick="clubAct({upgrade:'${k}'})">${money(c.upgrades[k])}</button>` : '<span class="chip">MAX</span>'}</div>`).join('')}</div>
     <div class="section-title">Правління</div><div class="card m16" style="padding:16px"><div class="row between"><b>Ціль: топ-${c.target}</b><b>${c.confidence}%</b></div><div class="bar ${c.confidence > 60 ? 'green' : ''}" style="margin-top:10px"><i style="width:${c.confidence}%"></i></div></div>`;
-  html += `<div class="pad" style="margin-top:14px;display:grid;gap:10px"><div class="grid2"><button class="btn ghost tap" onclick="openFinance()">💰 Фінанси</button><button class="btn ghost tap" onclick="openFinance('sponsor')">🤝 Спонсор</button></div><div class="grid2"><button class="btn ghost tap" onclick="openStaff()">👔 Штаб</button><button class="btn ghost tap" onclick="openBallon()">⚽ Золотий м’яч</button></div><button class="btn ghost tap" style="width:100%" onclick="openRecords()">🏛 Зал слави: рекорди і нагороди</button></div>`;
+  html += `<div class="pad" style="margin-top:14px;display:grid;gap:10px"><div class="grid2"><button class="btn ghost tap" onclick="openFinance()">💰 Фінанси</button><button class="btn ghost tap" onclick="openFinance('sponsor')">🤝 Спонсор</button></div><div class="grid2"><button class="btn ghost tap" onclick="openStaff()">👔 Штаб</button><button class="btn ghost tap" onclick="openBallon()">⚽ Золотий м’яч</button></div><div class="grid2"><button class="btn ghost tap" onclick="openLoans()">🔁 Оренди</button><button class="btn ghost tap" onclick="openCalendar()">📅 Календар</button></div><button class="btn ghost tap" style="width:100%" onclick="openRecords()">🏛 Зал слави: рекорди і нагороди</button></div>`;
   if (c.trophies.length) html += `<div class="section-title">Трофеї</div><div class="card m16 list">${c.trophies.map(t => `<div class="item"><b>${esc(t)}</b></div>`).join('')}</div>`;
   if (c.history.length) html += `<div class="section-title">Історія</div><div class="card m16 list">${c.history.map(h => `<div class="item"><span class="ptag">${h.season}</span><b class="grow">${esc(h.clubName)} · ${esc(h.league)}</b><b>${h.pos} місце</b></div>`).join('')}</div>`;
   html += `<div class="section-title">Новини</div><div class="card m16 list">${c.news.map(n => `<div class="item" style="font-weight:600;font-size:14px">${esc(n)}</div>`).join('') || '<div class="empty">Тиша</div>'}</div>`;
@@ -1078,6 +1083,59 @@ function clubTab() {
 }
 async function clubAct(d) { haptic(); const j = await call('/api/club', d); S.club = j.data; S.team.budget = S.club.budget; S.keepScroll = true; draw(); }
 async function upgrade(kind) { const j = await call('/api/club', { upgrade: kind }); haptic('success'); confetti(60); S.team = (await call('/api/team')).data; S.keepScroll = true; draw(); }
+
+/* ---------------- calendar, team of the week, loans */
+function fixtureStrip() {
+  const c = S.cal; if (!c) return '';
+  const items = c.items.filter(e => !e.tbd);
+  const ni = items.findIndex(e => e.next);
+  const from = Math.max(0, (ni < 0 ? items.length : ni) - 2);
+  const pick = items.slice(from, from + 6);
+  if (!pick.length) return '';
+  return `<div class="section-title row between" style="white-space:nowrap"><span>Календар</span><span class="row" style="gap:6px"><button class="chip" onclick="openTotw()">⭐ Збірна туру</button><button class="chip" onclick="openCalendar()">📅 Усі</button></span></div>
+    <div class="fx-strip m16">${pick.map(e => { const o = e.isHome ? e.away : e.home; return `<div class="fx ${e.res || ''} ${e.next ? 'next' : ''}" onclick="openCalendar()">
+      <span class="fx-c">${e.comp.icon}</span>${o ? crest(o, 34) : '<span class="fx-q">?</span>'}<b>${e.played ? (e.isHome ? `${e.hg}:${e.ag}` : `${e.ag}:${e.hg}`) : e.next ? 'НАСТ.' : e.isHome ? 'вдома' : 'виїзд'}</b></div>`; }).join('')}</div>`;
+}
+async function openCalendar() {
+  haptic(); const c = (await call('/api/calendar')).data; S.cal = c;
+  const resTxt = { W: 'В', D: 'Н', L: 'П' };
+  const rows = c.items.map(e => {
+    const nm = t => t ? `<div class="cal-t ${t.id === (S.team && S.team.club.id) ? 'me' : ''}">${crest(t, 28)}<span class="ellipsis">${esc(t.name)}</span></div>` : '<div class="cal-t"><span class="fx-q">?</span><span class="dim">жеребкування</span></div>';
+    const score = e.played ? `<b class="cal-sc">${e.hg}:${e.ag}</b>${e.pens ? `<small class="muted">пен. ${e.pens.join(':')}</small>` : e.agg ? `<small class="muted">заг. ${e.agg.join(':')}</small>` : ''}` : `<b class="cal-sc dim">–:–</b>`;
+    return `<div class="cal ${e.res || ''} ${e.next ? 'next' : ''} ${e.comp.key}" ${e.next ? 'id="cal-next"' : ''}>
+      <div class="cal-h"><span>${e.comp.icon} ${esc(e.comp.key === 'league' ? e.comp.name + ' · ' + e.label : e.label)}</span>${e.res ? `<span class="cal-r ${e.res}">${resTxt[e.res]}</span>` : e.next ? '<span class="cal-r nx">НАСТУПНИЙ</span>' : ''}</div>
+      <div class="cal-m">${nm(e.home)}<div class="cal-mid">${score}</div>${nm(e.away)}</div></div>`;
+  }).join('');
+  sheet(`<div class="h" style="font-size:24px;font-weight:800;text-transform:uppercase">📅 Календар ${esc(c.season)}</div>
+    <div class="cal-sum"><div><b>${c.played}/${c.total}</b><span>зіграно</span></div><div><b style="color:var(--green)">${c.w}</b><span>перемог</span></div><div><b>${c.d}</b><span>нічиїх</span></div><div><b style="color:var(--red)">${c.l}</b><span>поразок</span></div></div>
+    <div class="cal-list">${rows}</div>`);
+  setTimeout(() => { const n = document.getElementById('cal-next'); if (n) n.scrollIntoView({ block: 'center' }); }, 60);
+}
+async function openTotw() {
+  haptic(); const t = (await call('/api/totw')).data;
+  if (!t || t.empty) return sheet('<div class="empty" style="padding:30px">⭐ Збірна туру з’явиться після першого туру ліги.</div>');
+  const lines = { FW: [], MF: [], DF: [], GK: [] };
+  t.xi.forEach(p => lines[p.pos].push(p));
+  const sur = n => n.split(' ').slice(-1)[0];
+  const cnt = {}; t.xi.forEach(p => cnt[sur(p.name)] = (cnt[sur(p.name)] || 0) + 1);
+  const short = n => cnt[sur(n)] > 1 ? n.split(' ')[0][0] + '. ' + sur(n) : sur(n);
+  const ys = { FW: 16, MF: 42, DF: 68, GK: 90 };
+  const cards = Object.entries(lines).map(([pos, ps]) => ps.map((p, i) => `<div class="tw ${p.mine ? 'mine' : ''} ${p.star ? 'star' : ''}" style="left:${(i + 1) * 100 / (ps.length + 1)}%;top:${ys[pos]}%;animation-delay:${(i + ({ GK: 0, DF: 1, MF: 5, FW: 8 })[pos]) * 60}ms">
+      ${p.club ? crest(p.club, 22) : ''}<b class="tw-r">${p.rating}</b><span class="ellipsis">${esc(short(p.name))}</span></div>`).join('')).join('');
+  sheet(`<div class="h" style="font-size:24px;font-weight:800;text-transform:uppercase">⭐ Збірна ${t.round}-го туру</div>
+    <div class="muted" style="font-weight:700;font-size:13px">Найкращі оцінки ліги за тур · схема 4-3-3</div>
+    <div class="field totw">${FIELD_LINES}${cards}</div>
+    ${t.leaders.length ? `<div class="cp-sec">Твої гравці у збірних туру за кар’єру</div><div class="list">${t.leaders.map((l, i) => `<div class="item"><b class="big-num" style="width:22px;color:${i ? 'var(--muted)' : 'var(--gold)'}">${i + 1}</b><b class="grow">${esc(l.name)}</b><b>${l.n}×</b></div>`).join('')}</div>` : ''}`);
+}
+async function openLoans() {
+  haptic(); const d = (await call('/api/loans')).data;
+  const row = (p, verb) => `<div class="item tap" onclick="closeSheet();openPlayer(${p.id})"><div class="pava ${p.pos}" style="width:40px;height:40px;font-size:13px;border-radius:12px">${esc(initials(p.name))}</div>
+    <div class="grow"><b class="ellipsis" style="display:block">${p.flag} ${esc(p.name)} <span class="muted">${p.skill}</span></b><span class="muted" style="font-size:12px;font-weight:700">${verb} ${p.other ? esc(p.other.name) : ''} · ${p.apps} матч. · ${p.goals} гол.${p.rating ? ' · ' + p.rating : ''}</span></div>${p.other ? crest(p.other, 30) : ''}</div>`;
+  sheet(`<div class="h" style="font-size:24px;font-weight:800;text-transform:uppercase">🔁 Оренди</div>
+    <p class="muted" style="font-weight:700;font-size:13px;margin:6px 0 0">Молодим потрібна ігрова практика: 12+ матчів в оренді дають +1 майстерності, 24+ дають +2. Орендувати чужого гравця можна у його профілі на ринку, поки відкрите вікно${d.window ? ' (зараз відкрите ✅)' : ' (зараз закрите)'}.</p>
+    <div class="cp-sec">Мої гравці в оренді</div><div class="list">${d.out.map(p => row(p, 'грає за')).join('') || '<div class="empty">Нікого. Віддати можна з профілю гравця.</div>'}</div>
+    <div class="cp-sec">Орендовані гравці</div><div class="list">${d.in.map(p => row(p, 'з')).join('') || '<div class="empty">Немає</div>'}</div>`);
+}
 
 /* ---------------- sheet */
 function sheet(html) {

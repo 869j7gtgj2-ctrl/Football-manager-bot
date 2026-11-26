@@ -722,3 +722,48 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .cer-stats b{display:block;font-family:Oswald,Inter,sans-serif;font-size:20px}
 .cer-stats span{font-size:11px;color:var(--muted);font-weight:700}
 .cer-btn{position:fixed;left:16px;right:16px;bottom:calc(16px + var(--safe-b));width:auto!important}
+
+/* ---------------- calendar strip / calendar / team of the week / loans */
+.fx-strip{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.fx{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 4px 9px;border-radius:14px;
+  background:var(--card);border:1px solid var(--line);cursor:pointer;min-width:0}
+.fx b{font-family:Oswald,Inter,sans-serif;font-size:13px;letter-spacing:.02em;color:var(--muted)}
+.fx-c{position:absolute;top:4px;right:5px;font-size:10px;opacity:.8}
+.fx.W{box-shadow:inset 0 -3px 0 var(--green)} .fx.W b{color:var(--green)}
+.fx.D{box-shadow:inset 0 -3px 0 #9aa3b5} .fx.D b{color:#c8cdd6}
+.fx.L{box-shadow:inset 0 -3px 0 var(--red)} .fx.L b{color:var(--red)}
+.fx.next{border-color:rgba(227,181,74,.55);background:linear-gradient(180deg,rgba(227,181,74,.16),var(--card));animation:fxpulse 2.4s ease-in-out infinite}
+.fx.next b{color:var(--gold)}
+@keyframes fxpulse{50%{box-shadow:0 0 0 3px rgba(227,181,74,.12)}}
+.fx-q{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--card2);color:var(--dim);font-weight:800}
+.cal-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0 10px}
+.cal-sum div{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:10px 6px;text-align:center}
+.cal-sum b{display:block;font-family:Oswald,Inter,sans-serif;font-size:22px}
+.cal-sum span{font-size:11px;font-weight:700;color:var(--muted)}
+.cal-list{display:grid;gap:8px;max-height:62vh;overflow:auto;padding-bottom:10px}
+.cal{border-radius:16px;background:var(--card2);border:1px solid var(--line);padding:9px 12px 11px;border-left:4px solid var(--line2)}
+.cal.W{border-left-color:var(--green)} .cal.D{border-left-color:#9aa3b5} .cal.L{border-left-color:var(--red)}
+.cal.next{border-color:rgba(227,181,74,.6);border-left-color:var(--gold);background:linear-gradient(90deg,rgba(227,181,74,.14),var(--card2) 60%)}
+.cal.ucl .cal-h{color:#8fb4ff} .cal.cup .cal-h{color:var(--gold)}
+.cal-h{display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.cal-r{padding:2px 8px;border-radius:999px;font-size:11px;background:var(--card);color:var(--text)}
+.cal-r.W{background:rgba(47,245,154,.16);color:var(--green)} .cal-r.L{background:rgba(255,77,109,.16);color:var(--red)}
+.cal-r.nx{background:rgba(227,181,74,.18);color:var(--gold)}
+.cal-m{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin-top:8px}
+.cal-t{display:flex;align-items:center;gap:8px;min-width:0;font-weight:700;font-size:14px}
+.cal-m .cal-t:last-child{flex-direction:row-reverse;text-align:right}
+.cal-t.me span{color:var(--gold)}
+.cal-mid{display:flex;flex-direction:column;align-items:center;min-width:56px}
+.cal-sc{font-family:Oswald,Inter,sans-serif;font-size:20px}
+.field.totw{margin:14px 0 0}
+.tw{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:3px;width:68px;
+  padding:7px 4px 6px;border-radius:12px;background:rgba(8,10,14,.82);border:1px solid rgba(255,255,255,.12);
+  font-size:11px;font-weight:700;animation:twin .5s cubic-bezier(.2,1.3,.4,1) both}
+.tw span{max-width:62px}
+.tw-r{font-family:Oswald,Inter,sans-serif;font-size:15px;color:var(--green)}
+.tw.mine{border-color:rgba(227,181,74,.7);box-shadow:0 0 14px rgba(227,181,74,.25)}
+.tw.star{background:linear-gradient(180deg,rgba(227,181,74,.35),rgba(8,10,14,.9))} .tw.star .tw-r{color:var(--gold)}
+.tw.star::before{content:"★";position:absolute;top:-9px;right:-5px;color:var(--gold);font-size:15px;text-shadow:0 0 8px rgba(227,181,74,.8)}
+@keyframes twin{from{opacity:0;transform:translate(-50%,-30%) scale(.7)}}
+.loan-ban{margin-top:14px;padding:12px 14px;border-radius:14px;background:rgba(77,163,255,.1);border:1px solid rgba(77,163,255,.3);font-weight:700;font-size:14px}
+.tag.loan{background:rgba(77,163,255,.14);color:#8fc3ff}

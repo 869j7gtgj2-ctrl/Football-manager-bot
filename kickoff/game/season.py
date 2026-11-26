@@ -197,7 +197,7 @@ def ai_transfers(world: World, rng: random.Random) -> None:
         by_pos.setdefault(p.pos, []).append(p)
     need = {"GK": 2, "DF": 7, "MF": 7, "FW": 4}
     pos = min(need, key=lambda k: (len(by_pos.get(k, [])) - need[k], sum(x.skill for x in by_pos.get(k, [])) / max(1, len(by_pos.get(k, [])))))
-    worst = min(by_pos.get(pos, []), key=lambda p: p.skill, default=None)
+    worst = min((p for p in by_pos.get(pos, []) if not p.loan), key=lambda p: p.skill, default=None)
     cands = [p for p in world.free_agents() if p.pos == pos and (worst is None or p.skill > worst.skill)
              and p.skill <= club_level(club.reputation) + 8]
     if cands:
@@ -223,7 +223,7 @@ def generate_offers(world: World, rng: random.Random) -> None:
     world.offers = keep
     buyers = [c for c in world.clubs.values() if not c.is_user]
     for p in world.squad(world.club_id):
-        if any(o.player_id == p.id for o in world.offers):
+        if p.loan or any(o.player_id == p.id for o in world.offers):
             continue
         val = p.value()
         if p.listed:
@@ -258,6 +258,7 @@ def play_round(world: World, rng: random.Random | None = None, user_res: dict | 
     unavailable_start = {p.id: (p.injured, p.suspended) for p in world.players.values() if p.injured or p.suspended}
     injected, user_res = user_res, None
     played: set[int] = set()
+    league_ratings: dict = {}
     for div, rounds in world.fixtures.items():
         n = len(rounds)
         lo, hi = (r * n) // total, ((r + 1) * n) // total
@@ -270,6 +271,8 @@ def play_round(world: World, rng: random.Random | None = None, user_res: dict | 
                 res = simulate(world, home, away, rng, detailed=detailed)
             apply_result(world, res, rng)
             played.update(int(k) for k in res["minutes"])
+            if div == world.club.division:
+                league_ratings.update(res.get("ratings", {}))
             world.results.append(MatchResult(round=rr, division=div, home=h, away=a, hg=res["hg"], ag=res["ag"]))
             att, gate = gate_income(world, home, rng)
             home.budget += gate
@@ -304,6 +307,8 @@ def play_round(world: World, rng: random.Random | None = None, user_res: dict | 
         elif club.budget < 0:
             club.budget = max(club.budget, -500_000)
         msgs += develop(world, club, played, rng, total)
+    from .schedule import team_of_week
+    msgs = team_of_week(world, league_ratings, r + 1) + msgs
     for m in msgs[:3]:
         world.add_news(m)
     # board confidence
@@ -444,6 +449,8 @@ def end_season(world: World, rng: random.Random | None = None) -> dict:
                           "pts": tables[user_div][pos - 1]["pts"]})
     if world.confidence <= 0:
         world.fired = True
+    from .loans import return_all
+    summary["loans"] = return_all(world)
     # aging, retirement, contracts
     retired, left = [], []
     for p in list(world.players.values()):
