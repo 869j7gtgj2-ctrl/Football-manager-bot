@@ -26,6 +26,7 @@ from ..meta import GEM_PACKS, MAX_SLOTS, PREMIUM, SHOP, SLOT_PRICE, today
 from ..service import Service, locks
 from ..game import transfers as tr
 from ..game.names import flag
+from ..game.attrs import traits as attr_traits
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -645,6 +646,8 @@ def player_detail(w, pid: int) -> dict:
         d["wageDemand"] = wage_demand(w, pid)
         d["signBonus"] = wage_demand(w, pid) * 4 if p.club_id is None else 0
     d["careerGoals"], d["careerApps"] = p.career_goals, p.career_apps
+    from ..game.attrs import profile as attr_profile
+    d.update(attr_profile(p))
     neg = (w.negotiations or {}).get(str(pid))
     d["negotiation"] = {"status": "counter", "counter": neg["counter"], "left": 3 - neg["n"]} if neg and neg.get("counter") else None
     d["window"] = w.transfer_window_open()
@@ -1067,7 +1070,8 @@ def create_app(svc: Service, token: str) -> web.Application:
                "promoted": [w.clubs[c].name for c in s.get("promoted", [])],
                "relegated": [w.clubs[c].name for c in s.get("relegated", [])],
                "retired": s.get("retired", []), "left": s.get("left", []),
-               "youth": [w.players[i].name for i in s.get("youth", []) if i in w.players],
+               "youth": [{**player_json(w, w.players[i]), "traits": attr_traits(w.players[i])}
+                         for i in s.get("youth", []) if i in w.players],
                "jobs": s.get("jobs", 0), "awards": s.get("awards"), "sponsorNews": (s.get("sponsor") or []) + (s.get("loans") or []),
                "ballon": {**s["ballon"], "top": [{**t, "club": club_json(w, w.clubs[t["club"]]), "flag": flag(t["nation"])}
                                                  for t in s["ballon"]["top"]]} if s.get("ballon") else None,

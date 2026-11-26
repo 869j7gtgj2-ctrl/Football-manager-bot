@@ -791,3 +791,40 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .job-stars{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .job-stars span{font-size:12px;font-weight:700;padding:4px 9px;border-radius:999px;background:rgba(255,255,255,.06)}
 .job-stars b{color:var(--gold)}
+
+/* ---------------- attribute radar */
+.radar{margin-top:12px;padding:6px 8px 12px;border-radius:18px;background:var(--card2);border:1px solid var(--line)}
+.radar svg{display:block;width:100%;max-width:300px;margin:0 auto}
+.rd-n{font:700 9.5px Inter,sans-serif;fill:#8b93a7;letter-spacing:.02em}
+.rd-v{font:700 13px Oswald,Inter,sans-serif}
+.rd-poly{transform-origin:120px 112px;animation:rdin .6s cubic-bezier(.2,1.3,.4,1) both}
+@keyframes rdin{from{transform:scale(.2);opacity:0}}
+.traits{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-top:4px}
+.traits span{font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;background:rgba(227,181,74,.12);border:1px solid rgba(227,181,74,.3);color:#f2dca0}
+
+/* ---------------- youth intake day */
+.yd{position:fixed;inset:0;z-index:60;background:radial-gradient(60% 45% at 50% 30%,rgba(227,181,74,.16),transparent 70%),rgba(5,7,10,.96);
+  display:flex;align-items:center;justify-content:center;padding:16px;animation:fadein .3s both;overflow:auto}
+.yd.out{opacity:0;transition:opacity .3s}
+.yd-in{width:100%;max-width:520px;text-align:center}
+.yd-t{font:800 30px Oswald,Inter,sans-serif;text-transform:uppercase;letter-spacing:.02em;background:linear-gradient(90deg,#f5d78e,#c9952f);-webkit-background-clip:text;color:transparent}
+.yd-s{color:var(--muted);font-weight:700;font-size:13px;margin-top:4px}
+.yd-cards{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:20px}
+.yc{width:calc(33% - 8px);max-width:150px;aspect-ratio:.68;perspective:800px;cursor:pointer;animation:twin2 .5s both}
+.yc:nth-child(2){animation-delay:.1s}.yc:nth-child(3){animation-delay:.2s}.yc:nth-child(4){animation-delay:.3s}
+.yc-f{position:absolute;inset:0;border-radius:16px;backface-visibility:hidden;transition:transform .6s cubic-bezier(.3,1.3,.5,1)}
+.yc{position:relative}
+.yc-back{display:grid;place-items:center;background:repeating-linear-gradient(135deg,#151a24 0 10px,#11151d 10px 20px);border:1px solid rgba(227,181,74,.35)}
+.yc-back span{font:800 40px Oswald,Inter,sans-serif;color:rgba(227,181,74,.6);animation:fxpulse 1.6s infinite}
+.yc-front{transform:rotateY(180deg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 6px;
+  background:linear-gradient(170deg,#1d2330,#10141b);border:1px solid rgba(255,255,255,.14)}
+.yc-front.gem{background:linear-gradient(170deg,#4a3a14,#1a150a);border-color:#e3b54a;box-shadow:0 0 26px rgba(227,181,74,.45)}
+.yc.on .yc-back{transform:rotateY(-180deg)} .yc.on .yc-front{transform:rotateY(0)}
+.yc-top{display:flex;gap:6px;align-items:baseline} .yc-top b{font:800 26px Oswald,Inter,sans-serif} .yc-top span{font-size:11px;font-weight:800;color:var(--muted)}
+.yc-flag{font-size:20px} .yc-name{font-weight:800;font-size:13px;line-height:1.15}
+.yc-age{font-size:10px;font-weight:700;color:var(--muted)}
+.yc-stars{color:var(--gold);font-size:15px;letter-spacing:1px} .yc-stars i{color:rgba(255,255,255,.15);font-style:normal}
+.yc-tr{font-size:10px;font-weight:700;color:#f2dca0}
+.yd-q{margin:18px 6px 0;font-weight:700;font-size:14px;font-style:italic;color:#d6dae3;transition:opacity .4s}
+.yd-btn{margin-top:16px;transition:opacity .4s}
+@keyframes fadein{from{opacity:0}}

@@ -629,6 +629,19 @@ function slotTap(i) {
 async function setTac(d) { haptic(); const j = await call('/api/tactics', d); S.team = j.data; S.lineup = null; S.keepScroll = true; draw(); }
 
 /* player sheet */
+function radarHTML(p) {
+  const A = p.attrs, n = A.length, cx = 120, cy = 112, R = 78;
+  const pt = (i, r) => { const a = -Math.PI / 2 + i * 2 * Math.PI / n; return [cx + Math.cos(a) * r, cy + Math.sin(a) * r]; };
+  const ring = f => A.map((_, i) => pt(i, R * f).join(',')).join(' ');
+  const val = A.map((a, i) => pt(i, R * Math.max(.12, (a.v - 20) / 79)).join(',')).join(' ');
+  const col = v => v >= 85 ? '#f5d78e' : v >= 75 ? '#3fd98a' : v >= 60 ? '#c8cdd6' : '#ff8a9b';
+  const labels = A.map((a, i) => { const [x, y] = pt(i, R + 24); return `<text x="${x}" y="${y - 3}" text-anchor="middle" class="rd-n">${esc(a.name)}</text><text x="${x}" y="${y + 12}" text-anchor="middle" class="rd-v" fill="${col(a.v)}">${a.v}</text>`; }).join('');
+  return `<div class="radar"><svg viewBox="0 0 240 228"><defs><linearGradient id="rdg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f5d78e" stop-opacity=".55"/><stop offset="1" stop-color="#c9952f" stop-opacity=".25"/></linearGradient></defs>
+    ${[1, .75, .5, .25].map(f => `<polygon points="${ring(f)}" fill="none" stroke="rgba(255,255,255,${f === 1 ? .16 : .07})"/>`).join('')}
+    ${A.map((_, i) => { const [x, y] = pt(i, R); return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="rgba(255,255,255,.07)"/>`; }).join('')}
+    <polygon class="rd-poly" points="${val}" fill="url(#rdg)" stroke="#e3b54a" stroke-width="2" stroke-linejoin="round"/>${labels}</svg>
+    ${p.traits && p.traits.length ? `<div class="traits">${p.traits.map(t => `<span>${esc(t)}</span>`).join('')}</div>` : ''}</div>`;
+}
 async function openPlayer(id) {
   haptic();
   const p = (await call('/api/player?id=' + id)).data;
@@ -649,6 +662,7 @@ async function openPlayer(id) {
     <div class="grow"><div class="h" style="font-size:21px;font-weight:800">${p.flag} ${esc(p.name)}</div>
     <div class="muted" style="font-weight:700;margin-top:4px">${p.age} років · ${p.clubInfo ? esc(p.clubInfo.name) : 'Вільний агент'}${p.number ? ' · №' + p.number : ''}</div></div>
     <div class="ovr"><b class="${sc(p.skill)}" style="min-width:58px;height:50px;font-size:24px">${p.skill}</b></div></div>
+    ${p.attrs ? radarHTML(p) : ''}
     <div class="kv"><div><b style="color:var(--pink)">${p.pot}</b><span>Потенціал</span></div><div><b>${money(p.value)}</b><span>Вартість</span></div><div><b>${money(p.wage)}</b><span>Зарплата/тиж</span></div>
     <div><b style="color:var(--green)">${p.fitness}%</b><span>Форма</span></div><div><b>${p.morale}</b><span>Настрій</span></div><div><b>${p.contract}</b><span>Контракт до</span></div>
     <div><b>${p.apps}</b><span>Матчів</span></div><div><b>${p.goals}</b><span>Голів</span></div><div><b>${p.rating || '-'}</b><span>Сер. оцінка</span></div></div>${acts}`);
@@ -920,6 +934,7 @@ async function endSeason() {
   if (good) confetti(220);
   S.team = (await call('/api/team')).data; S.match = (await call('/api/match')).data; draw();
   if (s.ballon && s.ballon.top.length) await ceremony(s.ballon);
+  if (s.youth && s.youth.length) await youthDay(s.youth);
   sheet(`${(s.sponsorNews || []).map(t => `<div class="dz-tip" style="margin-bottom:8px">🤝 ${esc(t)}</div>`).join('')}<div style="text-align:center"><div style="font-size:60px">${s.position === 1 ? '🏆' : good ? '🎉' : '📉'}</div>
     <div class="h" style="font-size:24px;font-weight:800">Сезон ${s.season} завершено</div>
     <p class="muted" style="font-weight:700">${s.position}-е місце в ${esc(s.league)} · ціль була топ-${s.target}</p></div>
@@ -927,7 +942,7 @@ async function endSeason() {
     ${s.awards && s.awards.items.length ? `<div class="ht-t">🏅 Нагороди сезону</div><div class="awards">${s.awards.items.map(a => `<div class="aw ${a.mine ? 'mine' : ''}"><span>${a.icon}</span><div class="grow"><small>${esc(a.title)}</small><b>${esc(a.name)}</b><em>${esc(a.club)} · ${esc(a.value)}</em></div></div>`).join('')}</div>` : ''}
     ${s.champions.map(c => `<div class="row" style="padding:6px 0"><span class="ptag">${esc(c.league)}</span><b>👑 ${esc(c.club)}</b></div>`).join('')}
     ${s.promoted.length ? `<p style="font-weight:700">🔺 ${s.promoted.map(esc).join(', ')}<br>🔻 ${s.relegated.map(esc).join(', ')}</p>` : ''}
-    ${s.youth.length ? `<p style="font-weight:700">🎓 Вихованці: ${s.youth.map(esc).join(', ')}</p>` : ''}
+    ${s.youth.length ? `<p style="font-weight:700">🎓 Вихованці: ${s.youth.map(y => esc(y.name)).join(', ')}</p>` : ''}
     ${s.retired.length ? `<p class="muted" style="font-weight:700">👋 Завершили кар’єру: ${s.retired.map(esc).join(', ')}</p>` : ''}
     ${s.fired ? '<button class="btn danger tap" onclick="openJobs()">Тебе звільнено · пропозиції роботи</button>' : `${s.jobs ? `<button class="btn gold tap" style="margin-bottom:10px" onclick="openJobs()">📨 Тебе кличуть інші клуби (${s.jobs})</button>` : ''}<button class="btn tap" onclick="closeSheet()">Новий сезон · ціль топ-${s.newTarget}</button>`}`);
 }
@@ -1136,6 +1151,26 @@ async function openLoans() {
     <p class="muted" style="font-weight:700;font-size:13px;margin:6px 0 0">Молодим потрібна ігрова практика: 12+ матчів в оренді дають +1 майстерності, 24+ дають +2. Орендувати чужого гравця можна у його профілі на ринку, поки відкрите вікно${d.window ? ' (зараз відкрите ✅)' : ' (зараз закрите)'}.</p>
     <div class="cp-sec">Мої гравці в оренді</div><div class="list">${d.out.map(p => row(p, 'грає за')).join('') || '<div class="empty">Нікого. Віддати можна з профілю гравця.</div>'}</div>
     <div class="cp-sec">Орендовані гравці</div><div class="list">${d.in.map(p => row(p, 'з')).join('') || '<div class="empty">Немає</div>'}</div>`);
+}
+
+/* ---------------- youth intake day */
+function potStars(p) { const n = p.pot >= 86 ? 5 : p.pot >= 79 ? 4 : p.pot >= 71 ? 3 : p.pot >= 63 ? 2 : 1; return '★'.repeat(n) + '<i>' + '★'.repeat(5 - n) + '</i>'; }
+function youthDay(list) {
+  return new Promise(done => {
+    const best = list.reduce((a, b) => (b.pot > a.pot ? b : a), list[0]);
+    const quote = best.pot >= 86 ? `Такий талант буває раз на покоління. ${best.name} може стати зіркою світового рівня.` : best.pot >= 79 ? `${best.name} має всі шанси стати гравцем основи топ-клубу.` : best.pot >= 71 ? `Міцний набір. ${best.name} виглядає найцікавіше.` : 'Цього року без діамантів, але працювати є з ким.';
+    const root = document.createElement('div'); root.className = 'yd';
+    root.innerHTML = `<div class="yd-in"><div class="yd-t">🎓 День академії</div><div class="yd-s">Нові вихованці клубу. Торкайся карток, щоб відкрити</div>
+      <div class="yd-cards">${list.map((p, i) => `<div class="yc" data-i="${i}"><div class="yc-f yc-back"><span>?</span></div><div class="yc-f yc-front ${p.pot >= 86 ? 'gem' : ''}">
+        <div class="yc-top"><b>${p.skill}</b><span>${esc(p.role || p.pos)}</span></div><div class="yc-flag">${p.flag}</div><div class="yc-name">${esc(p.name)}</div><div class="yc-age">${p.age} р. · потенціал</div><div class="yc-stars">${potStars(p)}</div>
+        ${p.traits.length ? `<div class="yc-tr">${esc(p.traits[0])}</div>` : ''}</div></div>`).join('')}</div>
+      <div class="yd-q" style="opacity:0">🧑‍🏫 Тренер академії: «${esc(quote)}»</div><button class="btn gold tap yd-btn" style="opacity:0;pointer-events:none">Взяти в команду</button></div>`;
+    document.body.appendChild(root);
+    let open = 0;
+    const flip = el => { if (el.classList.contains('on')) return; el.classList.add('on'); haptic(); const p = list[+el.dataset.i]; if (p.pot >= 86) { confetti(120); haptic('success'); } if (++open === list.length) { root.querySelector('.yd-q').style.opacity = 1; const b = root.querySelector('.yd-btn'); b.style.opacity = 1; b.style.pointerEvents = 'auto'; } };
+    root.querySelectorAll('.yc').forEach(el => el.onclick = () => flip(el));
+    root.querySelector('.yd-btn').onclick = () => { root.classList.add('out'); setTimeout(() => { root.remove(); done(); }, 300); };
+  });
 }
 
 /* ---------------- manager career */

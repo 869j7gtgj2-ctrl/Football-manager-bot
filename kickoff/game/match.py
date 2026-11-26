@@ -130,8 +130,9 @@ class TeamState:
                 "gk": keeper}
 
 
-def weighted_pick(rng: random.Random, lineup, weights: dict) -> Player | None:
-    items = [(p, weights.get(line_of(s), 1) * max(p.skill, 1)) for s, p in lineup]
+def weighted_pick(rng: random.Random, lineup, weights: dict, attr: str | None = None) -> Player | None:
+    from .attrs import factor
+    items = [(p, weights.get(line_of(s), 1) * max(p.skill, 1) * (factor(p, attr) if attr else 1)) for s, p in lineup]
     if not items:
         return None
     total = sum(w for _, w in items)
@@ -278,7 +279,7 @@ class Sim:
                 opp = teams[1 - side]
                 if rng.random() < xg * 10.6 / 90:
                     team.shots += 1
-                    shooter = weighted_pick(rng, team.lineup, {"FW": 6, "MF": 2.5, "DF": 0.6, "GK": 0})
+                    shooter = weighted_pick(rng, team.lineup, {"FW": 6, "MF": 2.5, "DF": 0.6, "GK": 0}, "sho")
                     if shooter is None:
                         continue
                     quality = min(0.85, rng.expovariate(1 / 0.108))
@@ -289,7 +290,7 @@ class Sim:
                         assist = None
                         if rng.random() < 0.75:
                             others = [(s, p) for s, p in team.lineup if p.id != shooter.id]
-                            assist = weighted_pick(rng, others, {"MF": 5, "FW": 3, "DF": 1.5, "GK": 0.1})
+                            assist = weighted_pick(rng, others, {"MF": 5, "FW": 3, "DF": 1.5, "GK": 0.1}, "pas")
                         self.goals_by[shooter.id] = self.goals_by.get(shooter.id, 0) + 1
                         if assist:
                             self.assists_by[assist.id] = self.assists_by.get(assist.id, 0) + 1
