@@ -33,12 +33,25 @@ ACHIEVEMENTS = {
     "unbeaten5": {"title": "5 матчів без поразок", "reward": 25},
 }
 
+PREMIUM = {
+    "slot": {"title": "Додатковий слот кар’єри", "desc": "Ще одна паралельна кар’єра в іншому клубі", "price": 60, "icon": "🗂"},
+    "legend": {"title": "Легендарний скаут", "desc": "Вундеркінд 16-17 років з потенціалом 88+ у твоїй команді",
+               "price": 45, "icon": "🌟"},
+    "xp2": {"title": "Подвійний досвід", "desc": "×2 XP за матчі до кінця дня", "price": 20, "icon": "🚀"},
+    "frame": {"title": "Золота рамка тренера", "desc": "Ексклюзивна рамка аватара в профілі", "price": 30, "icon": "👑"},
+    "megasponsor": {"title": "Генеральний спонсор", "desc": "+€10 000 000 до бюджету клубу", "price": 80, "icon": "🏦"},
+}
+GEM_PACKS = [{"id": "g100", "gems": 100, "label": "Жменя кристалів"}, {"id": "g550", "gems": 550, "label": "Скриня"},
+             {"id": "g1200", "gems": 1200, "label": "Сейф чемпіона"}]
+
 SHOP = {
     "sponsor": {"title": "Спонсорський контракт", "desc": "+€1 000 000 до бюджету активного клубу", "price": 40,
                 "icon": "💼"},
     "medic": {"title": "Медичний штаб", "desc": "Миттєво вилікувати всі травми в команді", "price": 25, "icon": "🩺"},
     "energy": {"title": "Відновлення", "desc": "Повна фізична форма всій команді", "price": 15, "icon": "⚡"},
     "motivation": {"title": "Командний дух", "desc": "+20 до настрою всіх гравців", "price": 15, "icon": "🔥"},
+    "camp": {"title": "Тренувальний збір", "desc": "+1 до майстерності 5 гравцям основи (до їх потенціалу)",
+             "price": 70, "icon": "🏋️"},
     "scout": {"title": "Скаут-знахідка", "desc": "Талановитий юнак 17 років приєднується до команди", "price": 60,
               "icon": "🔭"},
 }
@@ -55,6 +68,9 @@ class Profile:
     username: str = ""
     photo_url: str = ""
     coins: int = 20
+    gems: int = 25        # premium currency (welcome gift; no real payments yet)
+    cosmetics: list = field(default_factory=list)
+    xp_boost_until: str = ""
     xp: int = 0
     slots_unlocked: int = FREE_SLOTS
     active_slot: int = 0
@@ -65,6 +81,7 @@ class Profile:
     claimed_today: list = field(default_factory=list)
     achievements: dict = field(default_factory=dict)  # id -> "done" | "claimed"
     unbeaten: int = 0
+    last_coins: int = 0
 
     # ---------- serialisation
     def to_dict(self) -> dict:
@@ -167,6 +184,10 @@ class Profile:
             c["clean"] = c.get("clean", 0) + 1
         if gf >= 3:
             c["big"] = c.get("big", 0) + 1
+        self.last_coins = 6 if gf > ga else 3 if gf == ga else 1
+        self.coins += self.last_coins
+        if self.xp_boost_until and self.xp_boost_until >= today():
+            xp *= 2
         self.unbeaten = self.unbeaten + 1 if gf >= ga else 0
         if self.unbeaten >= 5:
             self.achieve("unbeaten5")

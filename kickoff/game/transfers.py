@@ -31,7 +31,7 @@ def will_join(world: World, pid: int) -> tuple[bool, str]:
     return True, ""
 
 
-def buy(world: World, pid: int) -> tuple[bool, str]:
+def buy(world: World, pid: int, fee: int | None = None) -> tuple[bool, str]:
     p = world.players.get(pid)
     if not p or p.club_id == world.club_id:
         return False, "Гравця не знайдено."
@@ -44,7 +44,7 @@ def buy(world: World, pid: int) -> tuple[bool, str]:
     ok, why = will_join(world, pid)
     if not ok:
         return False, why
-    fee = asking_price(world, pid)
+    fee = asking_price(world, pid) if fee is None else fee
     if world.club.budget < fee:
         return False, f"Не вистачає коштів: потрібно {money(fee)}."
     seller = world.clubs[p.club_id]
@@ -56,8 +56,147 @@ def buy(world: World, pid: int) -> tuple[bool, str]:
     p.contract = 3
     p.listed = p.resting = False
     p.morale = min(100, p.morale + 10)
+    world.negotiations.pop(str(pid), None)
+    world.pitches = [x for x in world.pitches if x["pid"] != pid]
     world.add_news(f"✍️ Підписано {p.name} з {seller.name} за {money(fee)}.")
     return True, f"✅ {p.name} тепер гравець {world.club.name}! Сума: {money(fee)}, зарплата {money(p.wage)}/тиж."
+
+
+def round_fee(v: float) -> int:
+    step = 100_000 if v >= 2_000_000 else 5000
+    return max(step, int(round(v / step)) * step)
+
+
+def bid(world: World, pid: int, fee: int) -> tuple[bool, str, dict]:
+    """Haggling with the selling club. Returns (deal_done, message, {"status", "counter"})."""
+    p = world.players.get(pid)
+    if not p or p.club_id in (None, world.club_id):
+        return False, "Гравця не знайдено.", {"status": "error"}
+    if not world.transfer_window_open():
+        return False, "Трансферне вікно закрите.", {"status": "error"}
+    ok, why = will_join(world, pid)
+    if not ok:
+        return False, why, {"status": "error"}
+    if world.club.budget < fee:
+        return False, f"Не вистачає коштів: у бюджеті {money(world.club.budget)}.", {"status": "error"}
+    seller = world.clubs[p.club_id]
+    ask = asking_price(world, pid)
+    neg = world.negotiations.setdefault(str(pid), {"n": 0, "counter": 0})
+    if fee >= ask * 0.985 or (neg["counter"] and fee >= neg["counter"]):
+        good, msg = buy(world, pid, fee)
+        return good, msg, {"status": "accepted" if good else "error"}
+    neg["n"] += 1
+    if neg["n"] > 3:
+        return False, f"{seller.name} втомився від торгу і закрив переговори до кінця вікна.", {"status": "closed"}
+    if fee < ask * 0.6:
+        return False, f"{seller.name}: «Це навіть не пропозиція». Спробуй ближче до {money(round_fee(ask * 0.9))}.", \
+            {"status": "rejected"}
+    floor = ask * (1 - 0.04 * neg["n"])  # the seller softens a little with every round
+    counter = round_fee(max(fee * 1.03, (fee + floor) / 2))
+    if neg["counter"]:
+        counter = min(counter, neg["counter"])
+    neg["counter"] = counter
+    left = 3 - neg["n"]
+    return False, f"{seller.name} хоче {money(counter)}. Можна погодитися або торгуватися далі (спроб: {left}).", \
+        {"status": "counter", "counter": counter, "left": left}
+
+
+def set_listing(world: World, pid: int, price: int | None) -> tuple[bool, str]:
+    p = world.players.get(pid)
+    if not p or p.club_id != world.club_id:
+        return False, "Гравця не знайдено."
+    if price is None or price <= 0:
+        p.listed, p.ask = False, 0
+        world.offers = [o for o in world.offers if o.player_id != pid]
+        return True, "Знято з трансферного списку."
+    p.listed, p.ask = True, round_fee(price)
+    p.morale = max(10, p.morale - 5)
+    ratio = p.ask / max(1, p.value())
+    hint = "Ціна приваблива, покупці знайдуться швидко." if ratio <= 1 else \
+        "Ціна висока, пропозицій буде менше." if ratio <= 1.4 else "Ціна дуже висока, навряд чи хтось заплатить."
+    return True, f"🏷 {p.name} на продажі за {money(p.ask)}. {hint}"
+
+
+def counter_offer(world: World, offer_id: int, fee: int) -> tuple[bool, str]:
+    o = next((x for x in world.offers if x.id == offer_id), None)
+    if not o:
+        return False, "Пропозиція вже неактуальна."
+    buyer = world.clubs[o.club_id]
+    cap = o.max_fee or o.fee
+    if fee <= cap:
+        o.fee = round_fee(fee)
+        return sell_to(world, o.player_id, o.club_id, o.fee)
+    if o.kind == "final":
+        world.offers = [x for x in world.offers if x.id != offer_id]
+        return True, f"{buyer.name} відмовився від угоди: забагато."
+    o.fee = round_fee(min(cap, (o.fee + fee) / 2))
+    o.kind = "final"
+    return True, f"{buyer.name} піднімає пропозицію до {money(o.fee)}. Це їхня остання ціна."
+
+
+def accept_pitch(world: World, pitch_id: int) -> tuple[bool, str]:
+    pt = next((x for x in world.pitches if x["id"] == pitch_id), None)
+    if not pt:
+        return False, "Пропозиція агента вже неактуальна."
+    good, msg = buy(world, pt["pid"], pt["fee"])
+    if good:
+        world.pitches = [x for x in world.pitches if x["id"] != pitch_id]
+    return good, msg
+
+
+def decline_pitch(world: World, pitch_id: int) -> tuple[bool, str]:
+    world.pitches = [x for x in world.pitches if x["id"] != pitch_id]
+    return True, "Агенту відмовлено."
+
+
+def generate_pitches(world: World, rng: random.Random) -> None:
+    """Agents call while the window is open, offering players that fit the squad's weak spots."""
+    world.pitches = [x for x in world.pitches if x["until"] >= world.round and x["pid"] in world.players
+                     and world.players[x["pid"]].club_id not in (None, world.club_id)]
+    if not world.transfer_window_open():
+        world.pitches = []
+        return
+    if len(world.pitches) >= 3 or rng.random() > 0.6:
+        return
+    squad = world.squad(world.club_id)
+    if not squad:
+        return
+    lines = {}
+    for p in squad:
+        lines.setdefault(p.pos, []).append(p.skill)
+    need = min(("GK", "DF", "MF", "FW"), key=lambda k: (sorted(lines.get(k, [0]), reverse=True)[:3] or [0])[-1])
+    avg = sorted((p.skill for p in squad), reverse=True)[:11]
+    avg = sum(avg) / max(1, len(avg))
+    taken = {x["pid"] for x in world.pitches}
+    cands = [p for p in world.players.values() if p.club_id not in (None, world.club_id) and p.pos == need
+             and avg - 2 <= p.skill <= avg + 8 and p.id not in taken and will_join(world, p.id)[0]]
+    cands = [p for p in cands if asking_price(world, p.id) * 0.85 <= world.club.budget * 1.15]
+    if not cands:
+        return
+    p = rng.choice(sorted(cands, key=lambda x: -x.skill)[:12])
+    fee = round_fee(asking_price(world, p.id) * rng.uniform(0.8, 0.93))
+    notes = ["Клуб готовий відпустити його зі знижкою.", "Гравець хоче нового виклику і чекає твого дзвінка.",
+             "У нього конфлікт з тренером, ціна нижча за ринкову.", "Ексклюзивна пропозиція: діє лише кілька турів."]
+    world.pitches.append({"id": world.new_id(), "pid": p.id, "fee": fee, "until": world.round + 3,
+                          "note": rng.choice(notes)})
+    world.add_news(f"📞 Агент пропонує {p.name} ({world.clubs[p.club_id].name}) за {money(fee)}.")
+
+
+def train_player(world: World, pid: int) -> tuple[bool, str, int]:
+    """Paid individual session (costs coins in the service layer): +1 skill once per round, up to potential."""
+    p = world.players.get(pid)
+    if not p or p.club_id != world.club_id:
+        return False, "Гравця не знайдено.", 0
+    stamp = world.season * 1000 + world.round
+    if p.trained == stamp:
+        return False, "Цей гравець уже тренувався в цьому турі.", 0
+    if p.skill >= min(99, p.potential):
+        return False, f"{p.name} досяг свого потенціалу.", 0
+    return True, "", training_cost(p)
+
+
+def training_cost(p) -> int:
+    return 6 + max(0, p.skill - 50) // 3
 
 
 def _sign_free(world: World, p) -> tuple[bool, str]:
@@ -160,7 +299,9 @@ def renew(world: World, pid: int) -> tuple[bool, str]:
 
 def toggle_list(world: World, pid: int) -> tuple[bool, str]:
     p = world.players[pid]
-    p.listed = not p.listed
+    if not p.listed:
+        return set_listing(world, pid, p.value())
+    p.listed, p.ask = False, 0
     if p.listed:
         p.morale = max(10, p.morale - 5)
     return True, ("🏷 Виставлено на трансфер." if p.listed else "Знято з трансферного списку.")

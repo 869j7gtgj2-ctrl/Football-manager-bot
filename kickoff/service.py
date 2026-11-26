@@ -61,6 +61,7 @@ class Service:
             home = res["home"] == w.club_id
             gf, ga = (res["hg"], res["ag"]) if home else (res["ag"], res["hg"])
             res["xp"] = prof.on_match(gf, ga)
+            res["coins"] = prof.last_coins
         return res
 
     def finish_season(self, w, prof: Profile) -> dict:
@@ -109,6 +110,12 @@ class Service:
         elif item == "motivation":
             for p in squad:
                 p.morale = min(100, p.morale + 20)
+        elif item == "camp":
+            xi = sorted((p for p in squad if p.skill < p.potential), key=lambda p: -p.skill)[:5]
+            if not xi:
+                return False, "Усі гравці вже на межі потенціалу."
+            for p in xi:
+                p.skill += 1
         elif item == "scout":
             if len(squad) >= 30:
                 return False, "У складі вже 30 гравців."
@@ -118,6 +125,42 @@ class Service:
             w.players[y.id] = y
             w.add_news(f"🔭 Скаути знайшли талант: {y.name} (потенціал {y.potential}).")
         prof.coins -= it["price"]
+        return True, f"{it['icon']} {it['title']}: готово!"
+
+    def buy_premium(self, w, prof: Profile, item: str) -> tuple[bool, str]:
+        from .meta import MAX_SLOTS as _MAX, PREMIUM, today
+        it = PREMIUM.get(item)
+        if not it:
+            return False, "Товар не знайдено."
+        if prof.gems < it["price"]:
+            return False, f"Потрібно {it['price']} 💎. Поповнення кристалів з’явиться згодом."
+        if item == "slot":
+            if prof.slots_unlocked >= _MAX:
+                return False, "Усі слоти вже відкрито."
+            prof.slots_unlocked += 1
+        elif item == "xp2":
+            prof.xp_boost_until = today()
+        elif item == "frame":
+            if "gold_frame" in prof.cosmetics:
+                return False, "Рамка вже твоя."
+            prof.cosmetics.append("gold_frame")
+        elif item in ("legend", "megasponsor"):
+            if w is None:
+                return False, "Спершу почни кар’єру."
+            if item == "megasponsor":
+                w.club.budget += 10_000_000
+                w.season_finances["income"] += 10_000_000
+            else:
+                if len(w.squad(w.club_id)) >= 30:
+                    return False, "У складі вже 30 гравців."
+                from .game.generator import youth_player
+                y = youth_player(w, random.Random(), w.club)
+                y.age = random.choice([16, 17])
+                y.potential = random.randint(88, 94)
+                y.skill = max(y.skill, min(72, w.club.reputation - 6))
+                w.players[y.id] = y
+                w.add_news(f"🌟 Легендарний скаут привів вундеркінда: {y.name} (потенціал {y.potential}).")
+        prof.gems -= it["price"]
         return True, f"{it['icon']} {it['title']}: готово!"
 
     # convenience re-exports for handlers

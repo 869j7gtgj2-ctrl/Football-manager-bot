@@ -115,6 +115,8 @@ def test_cups_full_season():
     from kickoff.service import Service
 
     class P:
+        last_coins = 0
+
         def on_match(self, a, b):
             return 0
     w = new_world(1, "T", seed=11)
@@ -131,3 +133,23 @@ def test_cups_full_season():
     assert w.cups["cup"]["winner"] and w.cups["ucl"]["winner"]
     end_season(w, rng)
     assert len(w.euro_next["UCL"]) == 24 and w.cups["ucl"]["teams"]
+
+
+def test_haggling_listing_and_agents():
+    from kickoff.game import transfers as tr
+    from kickoff.game.season import generate_offers
+    w = career()
+    w.club.budget = 500_000_000
+    other = next(p for p in w.players.values() if p.club_id not in (None, w.club_id) and tr.will_join(w, p.id)[0])
+    ask = tr.asking_price(w, other.id)
+    done, msg, st = tr.bid(w, other.id, int(ask * 0.8))
+    assert not done and st["status"] == "counter" and st["counter"] < ask
+    done, msg, st = tr.bid(w, other.id, st["counter"])
+    assert done and other.club_id == w.club_id
+    mine = w.squad(w.club_id)[0]
+    ok, _ = tr.set_listing(w, mine.id, mine.value() // 2)
+    assert ok and mine.listed and mine.ask > 0
+    rng = random.Random(3)
+    for _ in range(10):
+        generate_offers(w, rng)
+    assert any(o.player_id == mine.id for o in w.offers) or w.pitches

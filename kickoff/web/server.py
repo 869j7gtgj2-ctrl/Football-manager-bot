@@ -22,7 +22,7 @@ from ..game.roles import ROLES, line_of
 from ..realdata import CREST_IMG, CREST_STATUS, CRESTS
 from ..game.season import fair_ticket, next_fixture, position, season_over, sponsor_income, table, wage_bill
 from ..game.transfers import asking_price, upgrade_cost, wage_demand
-from ..meta import MAX_SLOTS, SHOP, SLOT_PRICE
+from ..meta import GEM_PACKS, MAX_SLOTS, PREMIUM, SHOP, SLOT_PRICE, today
 from ..service import Service, locks
 from ..game import transfers as tr
 from ..game.names import flag
@@ -146,6 +146,8 @@ def profile_json(svc: Service, uid: int) -> dict:
         "tasks": prof.tasks(), "claimable": len(prof.claimable()),
         "slots": out_slots, "active": active,
         "shop": [{"id": k, **v} for k, v in SHOP.items()],
+        "gems": prof.gems, "premium": [{"id": k, **v} for k, v in PREMIUM.items()], "packs": GEM_PACKS,
+        "cosmetics": prof.cosmetics, "xpBoost": bool(prof.xp_boost_until and prof.xp_boost_until >= today()),
         "hall": [dict(zip(["manager", "club", "seasons", "titles", "promotions", "score"], r)) for r in svc.st.top(10)],
     }
 
@@ -400,7 +402,7 @@ def match_result_json(w, res: dict) -> dict:
             "shots": res["shots"], "onTarget": res["on_target"], "xg": res["xg"],
             "attendance": res.get("attendance", 0), "ratings": ratings,
             "motm": {"name": motm.name, "rating": res["ratings"].get(res["motm"])} if motm else None,
-            "xp": res.get("xp", 0), "fired": w.fired, "seasonOver": season_over(w), "isHome": res["home"] == w.club_id,
+            "xp": res.get("xp", 0), "coins": res.get("coins", 0), "fired": w.fired, "seasonOver": season_over(w), "isHome": res["home"] == w.club_id,
             "comp": res.get("comp")}
 
 
@@ -446,9 +448,18 @@ def market_json(w, f: str, page: int, q: str) -> dict:
     for o in w.offers:
         p = w.players.get(o.player_id)
         if p:
-            offers.append({"id": o.id, "fee": o.fee, "player": player_json(w, p), "club": club_json(w, w.clubs[o.club_id])})
+            offers.append({"id": o.id, "fee": o.fee, "player": player_json(w, p), "club": club_json(w, w.clubs[o.club_id]),
+                           "final": o.kind == "final", "ask": p.ask})
+    pitches = []
+    for x in w.pitches or []:
+        p = w.players.get(x["pid"])
+        if p and p.club_id not in (None, w.club_id):
+            pitches.append({"id": x["id"], "fee": x["fee"], "note": x["note"], "until": x["until"] - w.round + 1,
+                            "player": player_json(w, p), "club": club_json(w, w.clubs[p.club_id]),
+                            "price": asking_price(w, p.id)})
     return {"items": items, "page": page, "pages": max(1, (len(ps) + per - 1) // per), "budget": w.club.budget,
-            "window": w.transfer_window_open(), "offers": offers, "count": len(w.squad(w.club_id)), "max": SQUAD_MAX}
+            "window": w.transfer_window_open(), "offers": offers, "pitches": pitches,
+            "listed": [{**player_json(w, p), "ask": p.ask} for p in w.squad(w.club_id) if p.listed], "count": len(w.squad(w.club_id)), "max": SQUAD_MAX}
 
 
 def player_detail(w, pid: int) -> dict:
@@ -461,6 +472,15 @@ def player_detail(w, pid: int) -> dict:
         d["wageDemand"] = wage_demand(w, pid)
         d["signBonus"] = wage_demand(w, pid) * 4 if p.club_id is None else 0
     d["careerGoals"], d["careerApps"] = p.career_goals, p.career_apps
+    neg = (w.negotiations or {}).get(str(pid))
+    d["negotiation"] = {"status": "counter", "counter": neg["counter"], "left": 3 - neg["n"]} if neg and neg.get("counter") else None
+    d["window"] = w.transfer_window_open()
+    if not d["mine"] and p.club_id:
+        d["willJoin"], d["joinWhy"] = tr.will_join(w, pid)
+    d["ask"] = p.ask
+    if d["mine"]:
+        d["trainCost"] = tr.training_cost(p)
+        d["canTrain"] = p.trained != w.season * 1000 + w.round and p.skill < min(99, p.potential)
     return d
 
 
@@ -566,7 +586,11 @@ def create_app(svc: Service, token: str) -> web.Application:
 
     async def shop_buy(request):
         w, prof = world(request)
-        good, msg = svc.buy_item(w, prof, (await body(request)).get("item", ""))
+        b = await body(request)
+        if b.get("premium"):
+            good, msg = svc.buy_premium(w, prof, b.get("item", ""))
+        else:
+            good, msg = svc.buy_item(w, prof, b.get("item", ""))
         if good:
             svc.st.save(w)
             svc.st.save_profile(prof)
@@ -686,9 +710,34 @@ def create_app(svc: Service, token: str) -> web.Application:
         return ok(player_detail(w, pid))
 
     async def player_action(request):
-        w, _ = world(request)
+        w, prof = world(request)
         b = await body(request)
         pid, action = int(b.get("id", 0)), b.get("action")
+        if w is not None and pid in w.players and action in ("bid", "setlist", "train"):
+            extra = None
+            if action == "bid":
+                good, msg, extra = tr.bid(w, pid, int(b.get("fee", 0)))
+                svc.st.save(w)
+                data = player_detail(w, pid)
+                data["negotiation"] = extra
+                return ok(data, msg) if good or extra.get("status") == "counter" else \
+                    web.json_response({"ok": False, "error": msg, "data": data}, status=400)
+            if action == "setlist":
+                good, msg = tr.set_listing(w, pid, int(b["price"]) if b.get("price") else None)
+            else:
+                good, msg, cost = tr.train_player(w, pid)
+                if good and prof.coins < cost:
+                    good, msg = False, f"Потрібно {cost} монет."
+                if good:
+                    pl = w.players[pid]
+                    prof.coins -= cost
+                    pl.skill += 1
+                    pl.trained = w.season * 1000 + w.round
+                    svc.st.save_profile(prof)
+                    msg = f"🏋️ {pl.name}: майстерність {pl.skill} (−{cost} монет)"
+            if good:
+                svc.st.save(w)
+            return ok(player_detail(w, pid), msg) if good else fail(msg)
         fns = {"rest": tr.toggle_rest, "list": tr.toggle_list, "renew": tr.renew, "release": tr.release,
                "quicksell": tr.quick_sell, "buy": tr.buy}
         if w is None or action not in fns or pid not in w.players:
@@ -705,8 +754,13 @@ def create_app(svc: Service, token: str) -> web.Application:
     async def offer_action(request):
         w, _ = world(request)
         b = await body(request)
-        fn = tr.accept_offer if b.get("accept") else tr.reject_offer
-        good, msg = fn(w, int(b.get("id", 0)))
+        oid = int(b.get("id", 0))
+        if b.get("pitch"):
+            good, msg = (tr.accept_pitch if b.get("accept") else tr.decline_pitch)(w, oid)
+        elif b.get("counter"):
+            good, msg = tr.counter_offer(w, oid, int(b["counter"]))
+        else:
+            good, msg = (tr.accept_offer if b.get("accept") else tr.reject_offer)(w, oid)
         if good:
             svc.st.save(w)
         return ok(market_json(w, "ALL", 0, ""), msg) if good else fail(msg)

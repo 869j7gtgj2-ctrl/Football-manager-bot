@@ -60,6 +60,8 @@ class Player:
     real: bool = False
     number: int = 0
     role: str = ""
+    ask: int = 0          # asking price when the user lists the player
+    trained: int = -1     # season*1000+round of the last paid individual training
 
     @property
     def avg_rating(self) -> float:
@@ -130,7 +132,8 @@ class Offer:
     player_id: int
     club_id: int
     fee: int
-    kind: str = "bid"  # bid for user player
+    kind: str = "bid"  # bid for user player; "final" after one counter
+    max_fee: int = 0
 
 
 @dataclass
@@ -161,6 +164,8 @@ class World:
     last_xi: list = field(default_factory=list)
     cups: dict = field(default_factory=dict)  # "cup" / "ucl" -> competition state (see game/cups.py)
     euro_next: dict = field(default_factory=dict)
+    negotiations: dict = field(default_factory=dict)  # player id (str) -> {"n": rounds, "counter": fee}
+    pitches: list = field(default_factory=list)  # agent proposals: {"id","pid","fee","until","note"}
     season_finances: dict = field(default_factory=lambda: {"income": 0, "wages": 0, "transfers_in": 0, "transfers_out": 0})
 
     # ---------- helpers ----------

@@ -202,23 +202,39 @@ def ai_transfers(world: World, rng: random.Random) -> None:
 
 
 def generate_offers(world: World, rng: random.Random) -> None:
+    from .transfers import generate_pitches, round_fee
+    keep = [o for o in world.offers if o.kind == "final"]
     world.offers = []
+    generate_pitches(world, rng)
     if not world.transfer_window_open():
+        world.negotiations = {}
         return
+    world.offers = keep
     buyers = [c for c in world.clubs.values() if not c.is_user]
     for p in world.squad(world.club_id):
-        chance = 0.4 if p.listed else (0.05 if p.skill >= club_level(world.club.reputation) + 3 else 0.01)
+        if any(o.player_id == p.id for o in world.offers):
+            continue
+        val = p.value()
+        if p.listed:
+            ratio = (p.ask or val) / max(1, val)
+            chance = 0.55 if ratio <= 1 else 0.35 if ratio <= 1.25 else 0.15 if ratio <= 1.5 else 0.04
+        else:
+            chance = 0.05 if p.skill >= club_level(world.club.reputation) + 3 else 0.01
         if rng.random() >= chance:
             continue
-        rich = [c for c in buyers if c.budget > p.value() * 0.8 and club_level(c.reputation) + 10 >= p.skill]
+        rich = [c for c in buyers if c.budget > val * 0.8 and club_level(c.reputation) + 10 >= p.skill]
         if not rich:
             continue
         buyer = rng.choice(rich)
-        k = rng.uniform(0.7, 1.15) if p.listed else rng.uniform(1.0, 1.45)
-        fee = int(p.value() * k / 5000) * 5000
-        world.offers.append(Offer(id=world.new_id(), player_id=p.id, club_id=buyer.id, fee=fee))
+        if p.listed and p.ask:
+            fee = p.ask * rng.uniform(0.82, 1.0) if p.ask <= val * 1.3 else val * rng.uniform(0.95, 1.25)
+        else:
+            fee = val * rng.uniform(1.0, 1.45)
+        fee = round_fee(fee)
+        top = round_fee(max(fee, min(buyer.budget * 0.9, fee * rng.uniform(1.06, 1.22))))
+        world.offers.append(Offer(id=world.new_id(), player_id=p.id, club_id=buyer.id, fee=fee, max_fee=top))
     if world.offers:
-        world.add_news(f"📨 Нові трансферні пропозиції: {len(world.offers)}.")
+        world.add_news(f"📨 Трансферні пропозиції: {len(world.offers)}.")
 
 
 # ---------------------------------------------------------------- round

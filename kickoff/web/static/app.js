@@ -152,7 +152,7 @@ async function loadProfile() { const j = await call('/api/profile'); S.profile =
 function avatarHTML(p) {
   const u = p.user;
   const img = u.photo ? `<img src="${esc(u.photo)}" alt="">` : `<div>${esc(initials(u.name || 'Т'))}</div>`;
-  return `<div class="avatar">${img}<div class="lvl">${p.level}</div></div>`;
+  return `<div class="avatar ${(p.cosmetics || []).includes('gold_frame') ? 'gold' : ''}">${img}<div class="lvl">${p.level}</div></div>`;
 }
 function drawHome() {
   const p = S.profile;
@@ -160,7 +160,7 @@ function drawHome() {
   const others = p.slots.filter(s => !(active && s.slot === active.slot));
   const rewardAmt = p.daily.available ? p.daily.amount : p.tasks.filter(t => t.done && !t.claimed).reduce((a, t) => a + t.reward, 0);
   let html = `<div class="hero">${stadiumSVG()}<div class="fade"></div>
-    <div class="top"><div class="brand">KICKOFF</div><div class="coin-pill"><span class="coin"></span><span id="coins">${p.coins}</span></div></div>
+    <div class="top"><div class="brand">KICKOFF</div><div class="row" style="gap:8px"><div class="coin-pill"><span class="coin"></span><span id="coins">${p.coins}</span></div><div class="coin-pill gem-pill" onclick="show('shop')">💎 ${p.gems ?? 0}</div></div></div>
     <div class="who">${avatarHTML(p)}<div class="grow"><div class="uname ellipsis">${esc(p.user.name)}</div>
       ${p.user.username ? `<div class="muted" style="font-weight:700;margin-top:4px">@${esc(p.user.username)}</div>` : ''}
       <div class="rank">${esc(p.rank)} <div class="bar" style="width:90px"><i style="width:${Math.min(100, p.xpIn / p.xpNeed * 100)}%"></i></div> ${p.xpIn}/${p.xpNeed}</div></div></div></div>`;
@@ -223,16 +223,27 @@ async function selectSlot(slot) { const j = await call('/api/career/select', { s
 
 /* ---------------- SHOP */
 function drawShop() {
-  const p = S.profile;
-  let html = `<div class="chead"><div class="grow h" style="font-size:20px;font-weight:800">Магазин</div><div class="coin-pill"><span class="coin"></span>${p.coins}</div></div>
-  <p class="muted pad" style="font-weight:600">Монети заробляються в матчах, завданнях і щоденних бонусах. Покупки діють на активну кар’єру.</p>
-  <div class="shop-grid">` + p.shop.map(it => `<div class="card shop-item"><div class="ic">${it.icon}</div><b style="font-size:16px">${esc(it.title)}</b>
-    <div class="muted" style="font-size:13px;font-weight:600;flex:1">${esc(it.desc)}</div>
-    <button class="btn small gold tap" onclick="buyItem('${it.id}')">${it.price} <span class="coin"></span></button></div>`).join('') + `</div>`;
-  const locked = p.slots.find(s => s.state === 'locked');
-  if (locked) html += `<div class="section-title">Слоти</div><div class="card m16 slot tap" onclick="unlockSlot()"><div class="box lock">🔒</div><div class="grow"><b>Слот кар’єри</b><div class="muted" style="font-size:13px;font-weight:700">Веди дві-три команди одночасно</div></div><div class="price"><span class="coin"></span>${locked.price}</div></div>`;
+  const p = S.profile; const tab = S.shopTab || 'coins';
+  let html = `<div class="chead"><div class="grow h" style="font-size:20px;font-weight:800">Магазин</div><div class="coin-pill"><span class="coin"></span>${p.coins}</div><div class="coin-pill gem-pill">💎 ${p.gems}</div></div>
+  <div class="seg m16" style="margin-top:14px;display:flex"><button class="grow ${tab === 'coins' ? 'on' : ''}" onclick="S.shopTab='coins';draw()">🪙 За монети</button><button class="grow ${tab === 'gems' ? 'on' : ''}" onclick="S.shopTab='gems';draw()">💎 Преміум</button></div>`;
+  if (tab === 'coins') {
+    html += `<p class="muted pad" style="font-weight:600;font-size:14px">Монети — основна валюта: <b>+6 за перемогу, +3 за нічию, +1 за поразку</b>, а також завдання і щоденні бонуси. Індивідуальні тренування гравців теж за монети (у картці гравця).</p>
+    <div class="shop-grid">` + p.shop.map(it => `<div class="card shop-item"><div class="ic">${it.icon}</div><b style="font-size:16px">${esc(it.title)}</b>
+      <div class="muted" style="font-size:13px;font-weight:600;flex:1">${esc(it.desc)}</div>
+      <button class="btn small gold tap" onclick="buyItem('${it.id}')">${it.price} <span class="coin"></span></button></div>`).join('') + `</div>`;
+    const locked = p.slots.find(s => s.state === 'locked');
+    if (locked) html += `<div class="section-title">Слоти</div><div class="card m16 slot tap" onclick="unlockSlot()"><div class="box lock">🔒</div><div class="grow"><b>Слот кар’єри</b><div class="muted" style="font-size:13px;font-weight:700">Веди дві-три команди одночасно</div></div><div class="price"><span class="coin"></span>${locked.price}</div></div>`;
+  } else {
+    html += `<div class="card m16 gem-hero"><div style="font-size:40px">💎</div><div class="grow"><div class="h" style="font-size:22px;text-transform:uppercase">Кристали</div>
+      <div class="muted" style="font-size:13px;font-weight:700">Преміум-валюта для рідкісних можливостей. Тобі нараховано стартовий подарунок.</div></div><b class="big-num" style="font-size:30px;color:#9fd8ff">${p.gems}</b></div>
+    <div class="shop-grid" style="margin-top:12px">` + p.premium.map(it => `<div class="card shop-item gem"><div class="ic">${it.icon}</div><b style="font-size:16px">${esc(it.title)}</b>
+      <div class="muted" style="font-size:13px;font-weight:600;flex:1">${esc(it.desc)}</div>
+      <button class="btn small tap gem-btn" onclick="buyPremium('${it.id}')">${it.price} 💎</button></div>`).join('') + `</div>
+    <div class="section-title">Поповнити кристали</div><div class="card m16 list">${p.packs.map(k => `<div class="item"><span style="font-size:26px">💎</span><div class="grow"><b>${esc(k.label)}</b><div class="muted" style="font-size:12px;font-weight:700">${k.gems} кристалів</div></div><span class="chip">Скоро</span></div>`).join('')}</div>`;
+  }
   render(html);
 }
+async function buyPremium(id) { const j = await call('/api/shop', { item: id, premium: true }); S.profile = j.data; haptic('success'); confetti(80); draw(); }
 async function buyItem(id) { const j = await call('/api/shop', { item: id }); S.profile = j.data; haptic('success'); confetti(60); draw(); }
 
 /* ---------------- EARN */
@@ -323,7 +334,11 @@ async function loadTab() {
   if (S.tab === 'team') { S.team = (await call('/api/team')).data; S.lineup = null; }
   if (S.tab === 'match') { S.match = (await call('/api/match')).data; S.team = S.team || (await call('/api/team')).data; }
   if (S.tab === 'transfer') S.market = (await call(`/api/market?f=${S.mfilter}&page=${S.mpage}&q=${encodeURIComponent(S.mq)}`)).data;
-  if (S.tab === 'table') S.table = (await call('/api/table' + (S.league ? `?league=${S.league}` : ''))).data;
+  if (S.tab === 'table') {
+    const other = S.tview === 'other';
+    S.table = (await call('/api/table' + (other && S.league ? `?league=${S.league}` : ''))).data;
+    if (!other) S.cups = (await call('/api/cups')).data;
+  }
   if (S.tab === 'club') S.club = (await call('/api/club')).data;
   if (!S.team) S.team = (await call('/api/team')).data;
   draw();
@@ -474,11 +489,13 @@ async function openPlayer(id) {
   haptic();
   const p = (await call('/api/player?id=' + id)).data;
   let acts = '';
-  if (p.mine) acts = `<div class="btns"><button class="btn small ghost tap" onclick="pAct(${id},'rest')">${p.resting ? '✅ Повернути' : '💤 Не ставити'}</button>
-    <button class="btn small ghost tap" onclick="pAct(${id},'list')">${p.listed ? '🏷 Зняти з продажу' : '🏷 На продаж'}</button>
+  if (p.mine) acts = `${p.canTrain ? `<button class="btn small gold tap" style="width:100%;margin-top:12px" onclick="pAct(${id},'train')">🏋️ Індивідуальне тренування +1 · ${p.trainCost} <span class="coin"></span></button>` : ''}
+    <div class="btns"><button class="btn small ghost tap" onclick="pAct(${id},'rest')">${p.resting ? '✅ Повернути' : '💤 Не ставити'}</button>
+    <button class="btn small ghost tap" onclick="${p.listed ? `pSetList(${id},0)` : `listSheet(${id},${p.value})`}">${p.listed ? `🏷 Зняти (${money(p.ask)})` : '🏷 Продати за ціною'}</button>
     <button class="btn small ghost tap" onclick="pAct(${id},'renew')">📝 Продовжити</button><button class="btn small ghost tap" onclick="pAct(${id},'quicksell')">⚡ Продати</button></div>
     <button class="btn small danger tap" style="width:100%;margin-top:10px" onclick="pAct(${id},'release')">Розірвати контракт</button>`;
-  else acts = `<button class="btn tap" style="margin-top:14px" onclick="pAct(${id},'buy')">${p.clubInfo ? `Купити за ${money(p.price)}` : `Підписати · бонус ${money(p.signBonus)}`}</button>
+  else if (p.clubInfo) acts = negotiateHTML(p);
+  else acts = `<button class="btn tap" style="margin-top:14px" onclick="pAct(${id},'buy')">Підписати · бонус ${money(p.signBonus)}</button>
     <p class="muted" style="text-align:center;font-weight:700;font-size:13px">Зарплата ${money(p.wageDemand)}/тиж</p>`;
   sheet(`<div class="row" style="gap:16px"><div class="pava ${p.pos}" style="width:72px;height:72px;font-size:22px;border-radius:22px">${esc(initials(p.name))}<span class="pp">${esc(p.role || POS[p.pos])}</span></div>
     <div class="grow"><div class="h" style="font-size:21px;font-weight:800">${p.flag} ${esc(p.name)}</div>
@@ -488,9 +505,41 @@ async function openPlayer(id) {
     <div><b style="color:var(--green)">${p.fitness}%</b><span>Форма</span></div><div><b>${p.morale}</b><span>Настрій</span></div><div><b>${p.contract}</b><span>Контракт до</span></div>
     <div><b>${p.apps}</b><span>Матчів</span></div><div><b>${p.goals}</b><span>Голів</span></div><div><b>${p.rating || '-'}</b><span>Сер. оцінка</span></div></div>${acts}`);
 }
+function negotiateHTML(p) {
+  if (p.willJoin === false) return `<div class="dz-tip" style="margin-top:14px">🙅 ${esc(p.joinWhy)} Підніми репутацію клубу, і він передумає.</div>`;
+  if (!p.window) return `<div class="dz-tip" style="margin-top:14px">🔒 Трансферне вікно закрите. Ціна клубу: <b>${money(p.price)}</b>. Повертайся, коли вікно відкриється.</div>`;
+  const n = p.negotiation; const start = n && n.counter ? n.counter : Math.round(p.price * 0.85 / 5000) * 5000;
+  S.bid = { id: p.id, fee: start, step: p.price >= 2e6 ? 100000 : 25000 };
+  return `<div class="nego"><div class="row between"><span class="muted" style="font-weight:800;font-size:12px;letter-spacing:.08em;text-transform:uppercase">Ціна клубу</span><b>${money(p.price)}</b></div>
+    ${n && n.counter ? `<div class="nego-counter">🤝 Клуб готовий на <b>${money(n.counter)}</b> · спроб: ${n.left}</div>` : ''}
+    <div class="nego-row"><button class="nb" onclick="bidStep(-1)">−</button><div class="grow" style="text-align:center"><div class="muted" style="font-size:11px;font-weight:800;letter-spacing:.08em">ТВОЯ ПРОПОЗИЦІЯ</div><b id="bidv" class="big-num" style="font-size:28px">${money(start)}</b></div><button class="nb" onclick="bidStep(1)">+</button></div>
+    <div class="btns"><button class="btn small gold tap" onclick="sendBid()">🤝 Запропонувати</button>
+    <button class="btn small ghost tap" onclick="S.bid.fee=${n && n.counter ? n.counter : p.price};sendBid()">${n && n.counter ? `Погодитись ${money(n.counter)}` : `Ціна клубу`}</button></div>
+    <p class="muted" style="text-align:center;font-weight:700;font-size:12px;margin:8px 0 0">Зарплата ${money(p.wageDemand)}/тиж · клуб торгується до 3 разів</p></div>`;
+}
+function bidStep(d) { S.bid.fee = Math.max(S.bid.step, S.bid.fee + d * S.bid.step); $('#bidv').textContent = money(S.bid.fee); haptic(); }
+async function sendBid() {
+  const id = S.bid.id;
+  try {
+    const j = await api('/api/player', { id, action: 'bid', fee: S.bid.fee });
+    const st = j.data.negotiation || {};
+    if (st.status === 'accepted') { toast(j.message, 'good'); haptic('success'); confetti(120); closeSheet(); await loadTab(); return; }
+    toast(j.message, 'coins'); haptic('warning'); openPlayer(id);
+  } catch (e) { toast(e.message, 'bad'); haptic('error'); }
+}
+function listSheet(id, value) {
+  S.ask = { id, fee: Math.round(value / 5000) * 5000, step: value >= 2e6 ? 100000 : 25000 };
+  sheet(`<div class="h" style="font-size:22px;text-transform:uppercase">Виставити на продаж</div><p class="muted" style="font-weight:600">Ринкова вартість ${money(value)}. Чим вища ціна, тим менше покупців, але з пропозиціями можна торгуватися.</p>
+    <div class="nego-row"><button class="nb" onclick="askStep(-1)">−</button><div class="grow" style="text-align:center"><div class="muted" style="font-size:11px;font-weight:800;letter-spacing:.08em">ЦІНА ПРОДАЖУ</div><b id="askv" class="big-num" style="font-size:28px">${money(S.ask.fee)}</b></div><button class="nb" onclick="askStep(1)">+</button></div>
+    <div class="chips" style="padding:0;margin:10px 0">${[0.8, 1, 1.2, 1.5].map(k => `<button class="chip" onclick="S.ask.fee=${Math.round(value * k / 5000) * 5000};$('#askv').textContent=money(S.ask.fee)">${k === 1 ? 'Ринкова' : (k > 1 ? '+' : '') + Math.round((k - 1) * 100) + '%'}</button>`).join('')}</div>
+    <button class="btn tap" onclick="pSetList(${id},S.ask.fee)">🏷 Виставити</button>`);
+}
+function askStep(d) { S.ask.fee = Math.max(S.ask.step, S.ask.fee + d * S.ask.step); $('#askv').textContent = money(S.ask.fee); haptic(); }
+async function pSetList(id, price) { await call('/api/player', { id, action: 'setlist', price }); haptic('success'); closeSheet(); await loadTab(); }
 async function pAct(id, action) {
   if (action === 'release' && !confirm('Розірвати контракт? Доведеться виплатити компенсацію.')) return;
   const j = await call('/api/player', { id, action }); haptic('success');
+  if (action === 'train') { confetti(40); await loadProfile(); openPlayer(id); return; }
   closeSheet(); if (action === 'buy') confetti(100);
   await loadTab();
 }
@@ -563,8 +612,8 @@ function finishLive() {
   const L = S.live; if (!L) return;
   L.minute = 90; L.shown = L.res.events.length; L.done = true;
   const r = L.res; const my = r.isHome ? r.hg : r.ag, op = r.isHome ? r.ag : r.hg;
-  if (my > op) { confetti(180); haptic('success'); toast(`Перемога! +${r.xp} XP`, 'coins'); }
-  else if (my === op) toast(`Нічия. +${r.xp} XP`); else { haptic('error'); toast(`Поразка. +${r.xp} XP`, 'bad'); }
+  if (my > op) { confetti(180); haptic('success'); toast(`Перемога! +${r.xp} XP · +${r.coins || 0} 🪙`, 'coins'); }
+  else if (my === op) toast(`Нічия. +${r.xp} XP · +${r.coins || 0} 🪙`); else { haptic('error'); toast(`Поразка. +${r.xp} XP · +${r.coins || 0} 🪙`, 'bad'); }
   updateLive();
 }
 function liveScore(L) {
@@ -650,9 +699,16 @@ function transferTab() {
   const f = [['ALL', 'Усі'], ['GK', 'ВР'], ['DF', 'ЗХ'], ['MF', 'ПЗ'], ['FW', 'НП'], ['FA', '🆓 Вільні'], ['YT', '🌟 Таланти']];
   let html = `<div class="card m16 row between" style="padding:14px 16px;margin-top:14px"><div><b>${m.window ? '🟢 Трансферне вікно відкрите' : '🔴 Вікно закрите'}</b>
     <div class="muted" style="font-size:12px;font-weight:700;margin-top:3px">${m.window ? 'Купуй і продавай' : 'Можна підписати лише вільних агентів'}</div></div><span class="chip">${m.count}/${m.max}</span></div>`;
-  if (m.offers.length) html += `<div class="section-title">📨 Пропозиції за твоїх гравців</div><div class="card m16 list">${m.offers.map(o => `<div class="item">${crest(o.club, 40)}<div class="grow"><b>${esc(o.player.name)}</b>
-    <div class="muted" style="font-size:12px;font-weight:700">${esc(o.club.name)} · вартість ${money(o.player.value)}</div></div><div class="col" style="gap:6px;align-items:flex-end"><b style="color:var(--green)">${money(o.fee)}</b>
-    <div class="row" style="gap:6px"><button class="chip on" onclick="offer(${o.id},true)">✓</button><button class="chip" onclick="offer(${o.id},false)">✕</button></div></div></div>`).join('')}</div>`;
+  if (m.pitches && m.pitches.length) html += `<div class="section-title">📞 Агенти пропонують <small>${m.pitches.length}</small></div>` + m.pitches.map(x => `<div class="card m16 agent-card">
+    <div class="row" style="gap:12px"><div class="pava ${x.player.pos}">${esc(initials(x.player.name))}<span class="pp">${esc(x.player.role)}</span></div><div class="grow"><b class="ellipsis" style="display:block">${x.player.flag} ${esc(x.player.name)}</b>
+    <div class="muted row" style="gap:5px;font-size:12px;font-weight:700">${crest(x.club, 18)}${esc(x.club.name)} · ${x.player.age}р · пот. ${x.player.pot}</div></div><div class="ovr"><b class="${sc(x.player.skill)}">${x.player.skill}</b></div></div>
+    <div class="pitch-note">“${esc(x.note)}” <span class="dim">· ще ${x.until} тур.</span></div>
+    <div class="row between" style="margin-top:10px"><div><span class="muted" style="font-size:12px;font-weight:700;text-decoration:line-through">${money(x.price)}</span> <b style="color:var(--goldL);font-size:18px">${money(x.fee)}</b></div>
+    <div class="row" style="gap:8px"><button class="btn small ghost tap" onclick="pitch(${x.id},false)">Ні</button><button class="btn small gold tap" onclick="pitch(${x.id},true)">Купити</button></div></div></div>`).join('');
+  if (m.offers.length) html += `<div class="section-title">📨 Пропозиції за твоїх гравців</div><div class="card m16 list">${m.offers.map(o => `<div class="item" style="flex-wrap:wrap">${crest(o.club, 40)}<div class="grow"><b>${esc(o.player.name)}</b>
+    <div class="muted" style="font-size:12px;font-weight:700">${esc(o.club.name)} · вартість ${money(o.player.value)}${o.ask ? ` · твоя ціна ${money(o.ask)}` : ''}</div></div><b style="color:var(--green);font-size:17px">${money(o.fee)}</b>
+    <div class="row" style="gap:6px;width:100%;justify-content:flex-end"><button class="btn small ghost tap" onclick="offer(${o.id},false)">Відхилити</button>${o.final ? '' : `<button class="btn small ghost tap" onclick="counterSheet(${o.id},${o.fee})">↗ Торгуватися</button>`}<button class="btn small gold tap" onclick="offer(${o.id},true)">Продати</button></div></div>`).join('')}</div>`;
+  if (m.listed && m.listed.length) html += `<div class="section-title">🏷 Мої гравці на продажі</div><div class="card m16 list">${m.listed.map(p => `<div class="item tap" onclick="openPlayer(${p.id})"><span class="role">${esc(p.role)}</span><b class="grow">${esc(p.name)}</b><b style="color:var(--goldL)">${money(p.ask)}</b></div>`).join('')}</div>`;
   html += `<div class="search">🔎<input id="q" placeholder="Пошук гравця або клубу" value="${esc(S.mq)}" onkeydown="if(event.key==='Enter'){S.mq=this.value;S.mpage=0;go('transfer')}"></div>
     <div class="chips">${f.map(([k, l]) => `<button class="chip ${S.mfilter === k ? 'on' : ''}" onclick="S.mfilter='${k}';S.mpage=0;go('transfer')">${l}</button>`).join('')}</div>
     <div class="card m16" style="margin-top:8px">${m.items.map(p => `<div class="prow tap" onclick="openPlayer(${p.id})"><div class="pava ${p.pos}">${esc(initials(p.name))}<span class="pp">${esc(p.role || POS[p.pos])}</span></div>
@@ -661,14 +717,30 @@ function transferTab() {
     <div class="row pad" style="justify-content:center;margin-top:12px;gap:12px">${m.page > 0 ? `<button class="chip" onclick="S.mpage--;go('transfer')">◀</button>` : ''}<span class="muted" style="font-weight:800">${m.page + 1}/${m.pages}</span>${m.page < m.pages - 1 ? `<button class="chip" onclick="S.mpage++;go('transfer')">▶</button>` : ''}</div>`;
   return html;
 }
+async function pitch(id, accept) { const j = await call('/api/offer', { id, accept, pitch: true }); S.market = j.data; if (accept) { confetti(100); haptic('success'); } S.team = (await call('/api/team')).data; draw(); }
+function counterSheet(id, fee) {
+  S.ctr = { id, fee: Math.round(fee * 1.15 / 5000) * 5000, step: fee >= 2e6 ? 100000 : 25000 };
+  sheet(`<div class="h" style="font-size:22px;text-transform:uppercase">Торг</div><p class="muted" style="font-weight:600">Зараз пропонують ${money(fee)}. Назви свою ціну: якщо вона в межах їхнього бюджету, угоду буде укладено. Можна торгуватися лише раз.</p>
+    <div class="nego-row"><button class="nb" onclick="S.ctr.fee=Math.max(S.ctr.step,S.ctr.fee-S.ctr.step);$('#ctrv').textContent=money(S.ctr.fee)">−</button><div class="grow" style="text-align:center"><b id="ctrv" class="big-num" style="font-size:28px">${money(S.ctr.fee)}</b></div><button class="nb" onclick="S.ctr.fee+=S.ctr.step;$('#ctrv').textContent=money(S.ctr.fee)">+</button></div>
+    <button class="btn tap" style="margin-top:12px" onclick="sendCounter()">↗ Запросити</button>`);
+}
+async function sendCounter() { const j = await call('/api/offer', { id: S.ctr.id, counter: S.ctr.fee }); S.market = j.data; closeSheet(); haptic('success'); S.team = (await call('/api/team')).data; draw(); }
 async function offer(id, accept) { const j = await call('/api/offer', { id, accept }); S.market = j.data; if (accept) { confetti(80); haptic('success'); } S.team = (await call('/api/team')).data; draw(); }
 
 /* ---------------- TABLE */
 function tableTab() {
   const t = S.table;
-  const views = `<div class="seg m16" style="margin-top:14px;display:flex">${[['league', 'Ліга'], ['cup', 'Кубок'], ['ucl', '⭐ ЛЧ']].map(([k, l]) => `<button class="grow ${(S.tview || 'league') === k ? 'on' : ''}" onclick="setTView('${k}')">${l}</button>`).join('')}</div>`;
-  if ((S.tview || 'league') !== 'league') return views + cupsView();
-  let html = views + `<div class="chips" style="margin-top:10px">${t.leagues.map(l => `<button class="chip ${l.id === t.league ? 'on' : ''}" onclick="S.league=${l.id};go('table')">${l.flag} ${esc(l.short)}</button>`).join('')}</div>
+  const mine = S.tview !== 'other';
+  const myLeague = S.team && S.team.club.league;
+  const views = `<div class="seg m16" style="margin-top:14px;display:flex">${[['mine', 'Мої турніри'], ['other', 'Інші ліги']].map(([k, l]) => `<button class="grow ${(mine ? 'mine' : 'other') === k ? 'on' : ''}" onclick="setTView('${k}')">${l}</button>`).join('')}</div>`;
+  let html = views;
+  if (mine) {
+    const comps = (S.cups && S.cups.comps || []).filter(c => c.in || c.key === 'cup');
+    html += `<div class="chips" style="margin-top:10px">${[['', '📊 ' + esc(t.leagues.find(l => l.id === t.league).short)], ...comps.map(c => [c.key, c.icon + ' ' + (c.key === 'ucl' ? 'ЛЧ' : 'Кубок')])].map(([k, l]) => `<button class="chip" onclick="document.getElementById('sec-${k || 'league'}').scrollIntoView({behavior:'smooth',block:'start'})">${l}</button>`).join('')}</div>`;
+  } else {
+    html += `<div class="chips" style="margin-top:10px">${t.leagues.filter(l => l.id !== myLeague).map(l => `<button class="chip ${l.id === t.league ? 'on' : ''}" onclick="S.league=${l.id};go('table')">${l.flag} ${esc(l.short)}</button>`).join('')}</div>`;
+  }
+  html += `<div id="sec-league"></div>
   <div class="card m16" style="padding:6px 8px;margin-top:8px"><div class="h" style="font-weight:800;padding:10px 6px">${esc(t.name)}</div><table class="lt"><tr><th>#</th><th style="text-align:left">Клуб</th><th>І</th><th>РМ</th><th>Форма</th><th>О</th></tr>`;
   const n = t.rows.length;
   t.rows.forEach(r => {
@@ -677,11 +749,12 @@ function tableTab() {
       <td>${r.p}</td><td style="color:${r.gf - r.ga > 0 ? 'var(--green)' : r.gf - r.ga < 0 ? 'var(--red)' : 'inherit'}">${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td>${formHTML(r.form.slice(-3))}</td><td><b class="pts">${r.pts}</b></td></tr>`;
   });
   html += `</table></div>`;
+  if (mine) (S.cups && S.cups.comps || []).filter(c => c.in || c.key === 'cup').forEach(c => { html += `<div id="sec-${c.key}" style="scroll-margin-top:70px"></div>` + cupsView(c); });
   if (t.scorers.length) html += `<div class="section-title">Бомбардири</div><div class="card m16 list">${t.scorers.map((s, i) => `<div class="item"><b class="big-num" style="width:24px;color:${i < 3 ? 'var(--gold)' : 'var(--muted)'}">${i + 1}</b><div class="grow"><b>${s.flag} ${esc(s.name)}</b><div class="muted" style="font-size:12px;font-weight:700">${esc(s.club)} · 🅰️ ${s.assists}</div></div><b class="big-num" style="color:var(--lime)">${s.goals}</b></div>`).join('')}</div>`;
   return html;
 }
 
-async function setTView(v) { haptic(); S.tview = v; if (v !== 'league') S.cups = (await call('/api/cups')).data; S.keepScroll = true; draw(); }
+async function setTView(v) { haptic(); S.tview = v; if (v === 'other') { const my = S.team && S.team.club.league; if (!S.league || S.league === my) S.league = (S.table.leagues.find(l => l.id !== my) || {}).id; } await go('table'); }
 function scoreTxt(t) {
   if (!t.legs.length) return '<span class="dim">–:–</span>';
   return t.legs.map(l => `${l.hg}:${l.ag}`).join(' · ') + (t.legs.at(-1).pens ? ` <small class="muted">(пен. ${t.legs.at(-1).pens.join(':')})</small>` : '');
@@ -691,10 +764,9 @@ function tieRow(t) {
   const nm = c => c ? `<div class="row" style="gap:6px;min-width:0">${crest(c, 22)}<span class="ellipsis ${w === c.id ? 'win' : w ? 'lose' : ''}">${esc(c.name)}</span></div>` : '<span class="dim">вільний прохід</span>';
   return `<div class="tie ${t.mine ? 'me' : ''}">${nm(t.a)}<b class="tsc">${t.b ? scoreTxt(t) : ''}</b>${nm(t.b)}</div>`;
 }
-function cupsView() {
-  const comp = (S.cups.comps || []).find(c => c.key === S.tview);
+function cupsView(comp) {
   if (!comp) return '<div class="empty">Немає даних</div>';
-  let html = `<div class="card glow m16 cup-head ${comp.key}" style="margin-top:12px"><div style="font-size:34px">${comp.icon}</div><div class="grow"><div class="h" style="font-size:22px;text-transform:uppercase">${esc(comp.name)}</div>
+  let html = `<div class="card glow m16 cup-head ${comp.key}" style="margin-top:22px"><div style="font-size:34px">${comp.icon}</div><div class="grow"><div class="h" style="font-size:22px;text-transform:uppercase">${esc(comp.name)}</div>
     <div class="muted" style="font-weight:700;font-size:13px">${comp.winner ? `Переможець: ${esc(comp.winner.name)}` : comp.alive ? 'Ти ще в боротьбі 💪' : comp.in ? 'Твій клуб вибув' : 'Твій клуб не грає в турнірі цього сезону'}</div></div></div>`;
   if (comp.table) {
     html += `<div class="section-title">Загальний етап <small>тур ${comp.played}/6 · топ-16 далі</small></div><div class="card m16" style="padding:6px 8px"><table class="lt"><tr><th>#</th><th style="text-align:left">Клуб</th><th>І</th><th>РМ</th><th>О</th></tr>`;
