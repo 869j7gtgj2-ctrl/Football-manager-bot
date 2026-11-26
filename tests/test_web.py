@@ -214,3 +214,46 @@ async def test_calendar_totw_and_loans(tmp_path):
         await c.post("/api/season/end", json={}, headers=h)
         loans = (await (await c.get("/api/loans", headers=h)).json())["data"]
         assert not loans["in"] and not loans["out"]
+
+
+@pytest.mark.asyncio
+async def test_manager_career_jobs(tmp_path):
+    import random
+    from kickoff.game import career
+    svc = Service(Storage(str(tmp_path / "db.sqlite")))
+    app = create_app(svc, TOKEN)
+    async with TestClient(TestServer(app)) as c:
+        h = {"X-Init-Data": signed({"id": 23, "first_name": "Ілля"})}
+        draft = (await (await c.post("/api/career/draft", json={"slot": 0}, headers=h)).json())["data"]
+        club = next(x for l in draft["leagues"] for x in l["clubs"] if x["name"] == "Полтава")
+        await c.post("/api/career/create", json={"slot": 0, "club_id": club["id"]}, headers=h)
+        for _ in range(3):
+            await c.post("/api/match/play", json={"fast": True}, headers=h)
+        # sacked mid-season: offers come from leagues with the same calendar length
+        w = svc.st.load(23, 0)
+        w.fired = True
+        career.on_fired(w, random.Random(1))
+        svc.st.save(w)
+        m = (await (await c.get("/api/match", headers=h)).json())["data"]
+        assert m["fired"] and m["jobs"] >= 1
+        assert not (await (await c.post("/api/match/play", json={"fast": True}, headers=h)).json())["ok"]
+        j = (await (await c.get("/api/jobs", headers=h)).json())["data"]
+        assert j["fired"] and j["items"]
+        assert not (await (await c.post("/api/jobs", json={"decline": True}, headers=h)).json())["ok"]
+        target = j["items"][0]["club"]["id"]
+        r = await (await c.post("/api/jobs", json={"club": target}, headers=h)).json()
+        assert r["ok"] and not r["data"]["fired"] and r["data"]["current"]["id"] == target
+        assert r["data"]["career"][0]["to"] == j["items"][0]["club"]["name"]
+        t = (await (await c.get("/api/team", headers=h)).json())["data"]
+        assert t["club"]["id"] == target and not t["fired"]
+        j = await (await c.post("/api/match/play", json={"fast": True}, headers=h)).json()
+        assert j["ok"] and target in (j["data"]["home"]["id"], j["data"]["away"]["id"])
+        # finish the season at the new club; offers between seasons may come
+        while True:
+            j = await (await c.post("/api/match/play", json={"fast": True}, headers=h)).json()
+            if not j["ok"] or j["data"]["seasonOver"]:
+                break
+        s = (await (await c.post("/api/season/end", json={}, headers=h)).json())["data"]
+        assert "jobs" in s
+        j = (await (await c.get("/api/jobs", headers=h)).json())["data"]
+        assert j["repLog"]

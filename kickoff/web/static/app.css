@@ -767,3 +767,27 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 @keyframes twin{from{opacity:0;transform:translate(-50%,-30%) scale(.7)}}
 .loan-ban{margin-top:14px;padding:12px 14px;border-radius:14px;background:rgba(77,163,255,.1);border:1px solid rgba(77,163,255,.3);font-weight:700;font-size:14px}
 .tag.loan{background:rgba(77,163,255,.14);color:#8fc3ff}
+
+/* ---------------- manager career */
+.job-ban{display:flex;align-items:center;gap:12px;padding:14px 16px;border-color:rgba(227,181,74,.45);
+  background:linear-gradient(90deg,rgba(227,181,74,.14),var(--card) 70%)}
+.job-ban.fired{flex-direction:column;text-align:center;padding:22px;border-color:rgba(255,77,109,.4);
+  background:linear-gradient(180deg,rgba(255,77,109,.12),var(--card))}
+.rep{margin-top:14px;padding:14px 16px;border-radius:16px;background:var(--card2);border:1px solid rgba(227,181,74,.25)}
+.job{margin-top:12px;padding:16px;border-radius:18px;background:linear-gradient(160deg,rgba(227,181,74,.1),var(--card2) 55%);
+  border:1px solid rgba(227,181,74,.3);animation:twin2 .45s cubic-bezier(.2,1.2,.4,1) both}
+.job.fired{background:linear-gradient(160deg,rgba(77,163,255,.1),var(--card2) 55%);border-color:rgba(77,163,255,.3)}
+.job.approach{border-color:rgba(255,77,109,.45)}
+@keyframes twin2{from{opacity:0;transform:translateY(14px)}}
+.job-k{font-size:10px;font-weight:800;letter-spacing:.1em;padding:4px 8px;border-radius:999px;background:rgba(227,181,74,.18);color:var(--gold)}
+.job.approach .job-k{background:rgba(255,77,109,.18);color:var(--red)}
+.job.fired .job-k{background:rgba(77,163,255,.18);color:#8fc3ff}
+.job-q{margin-top:12px;font-style:italic;font-weight:600;font-size:14px;color:#d6dae3;border-left:3px solid rgba(227,181,74,.5);padding-left:10px}
+.job-st{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.job-st div{background:rgba(0,0,0,.25);border-radius:12px;padding:8px;text-align:center}
+.job-st b{display:block;font-family:Oswald,Inter,sans-serif;font-size:18px}
+.job-st b.up{color:var(--green)} .job-st b.dn{color:var(--red)}
+.job-st span{font-size:10px;font-weight:700;color:var(--muted)}
+.job-stars{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.job-stars span{font-size:12px;font-weight:700;padding:4px 9px;border-radius:999px;background:rgba(255,255,255,.06)}
+.job-stars b{color:var(--gold)}

@@ -93,6 +93,12 @@ class Service:
         if w.pending and user_res is None:  # a paused live match: finish it without changes
             return self.second_half(w, prof, rng=rng)
         res = play_next(w, rng or random.Random(), user_res)
+        from .game import career
+        career.expire(w)
+        if w.fired:
+            career.on_fired(w, rng or random.Random())
+        else:
+            career.maybe_approach(w, rng or random.Random())
         if res:
             home = res["home"] == w.club_id
             gf, ga = (res["hg"], res["ag"]) if home else (res["ag"], res["hg"])
@@ -129,6 +135,13 @@ class Service:
         summary = end_season(w, random.Random())
         summary["xp"] = prof.on_season(summary, club.id)
         summary["cups_won"] = [c["name"] for c in (summary.get("cups") or {}).values() if c.get("winner") == club.id]
+        from .game import career
+        career.on_season_end(w, summary, summary["cups_won"])
+        if w.fired:
+            career.on_fired(w, random.Random())
+        else:
+            w.records["jobs"] = career.make_offers(w, random.Random(), "season")
+        summary["jobs"] = len(w.records.get("jobs") or [])
         summary.update({
             "club": club.name, "season_label": f"{2025 + season}/{str(2026 + season)[-2:]}",
             "pts": row["pts"], "w": row["w"], "d": row["d"], "l": row["l"], "gf": row["gf"], "ga": row["ga"],

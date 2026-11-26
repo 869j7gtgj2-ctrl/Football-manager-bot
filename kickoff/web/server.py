@@ -179,6 +179,7 @@ def team_json(w) -> dict:
                     "formations": list(FORMATIONS), "styles": STYLES, "trainings": TRAINING},
         "confidence": w.confidence, "target": w.board_target, "window": w.transfer_window_open(),
         "fired": w.fired, "seasonOver": season_over(w), "offers": len(w.offers),
+        "jobs": len(w.records.get("jobs") or []),
     }
 
 
@@ -371,6 +372,29 @@ def totw_json(w) -> dict | None:
     return {"round": t["round"], "xi": xi, "leaders": [{"name": n, "n": c} for n, c in top]}
 
 
+def jobs_json(w) -> dict:
+    from ..game import career
+    from ..game.season import table as tbl
+    items = []
+    for j in w.records.get("jobs") or []:
+        c = w.clubs.get(j["club"])
+        if not c:
+            continue
+        rows = tbl(w, c.division)
+        pos = next((i + 1 for i, r in enumerate(rows) if r["club"] == c.id), None)
+        squad = w.squad(c.id)
+        best = sorted(squad, key=lambda p: -p.skill)[:3]
+        items.append({"club": club_json(w, c), "kind": j["kind"], "pitch": j["pitch"], "target": j["target"],
+                      "budget": c.budget, "rating": team_rating(w, c), "pos": pos if w.round else None,
+                      "league": LEAGUES[c.division]["short"], "leagueFlag": LEAGUES[c.division]["flag"],
+                      "stars": [{"name": p.name, "skill": p.skill, "pos": p.pos} for p in best],
+                      "left": (j.get("until", w.round) - w.round + 1) if j["kind"] == "approach" else None})
+    log = [{"season": season_label(x["season"]), "from": w.clubs[x["from"]].name, "to": w.clubs[x["to"]].name}
+           for x in w.records.get("career", []) if x["from"] in w.clubs and x["to"] in w.clubs]
+    return {"items": items, "fired": w.fired, "rep": career.rep(w), "repLog": w.records.get("mrep_log", [])[:6],
+            "career": log, "current": club_json(w, w.club), "myRating": team_rating(w, w.club)}
+
+
 def loans_json(w) -> dict:
     from ..game import loans as ln
 
@@ -403,7 +427,7 @@ def match_preview(w) -> dict:
     ev = cupsmod.user_next(w)
     nf = (ev["home"], ev["away"]) if ev else next_fixture(w)
     if not nf:
-        return {"seasonOver": True}
+        return {"seasonOver": True, **life_json(w)}
     h, a = nf
     rows = table(w, w.club.division)
     pos = {r["club"]: i + 1 for i, r in enumerate(rows)}
@@ -499,7 +523,8 @@ def halftime_json(w, sim) -> dict:
 
 
 def life_json(w) -> dict:
-    return {"press": w.press or None, "dilemmas": w.dilemmas}
+    return {"press": w.press or None, "dilemmas": w.dilemmas, "jobs": len(w.records.get("jobs") or []),
+            "fired": w.fired}
 
 
 def match_result_json(w, res: dict) -> dict:
@@ -967,6 +992,27 @@ def create_app(svc: Service, token: str) -> web.Application:
             return fail("Немає активної кар’єри.", 404)
         return ok(totw_json(w) or {"empty": True})
 
+    async def get_jobs(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        return ok(jobs_json(w))
+
+    async def post_jobs(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        from ..game import career
+        b = await body(request)
+        if b.get("decline"):
+            good, msg = career.decline_all(w)
+        else:
+            good, msg = career.accept(w, int(b.get("club", 0)))
+        if not good:
+            return fail(msg)
+        svc.st.save(w)
+        return ok(jobs_json(w), msg)
+
     async def get_loans(request):
         w, _ = world(request)
         if w is None:
@@ -1022,7 +1068,7 @@ def create_app(svc: Service, token: str) -> web.Application:
                "relegated": [w.clubs[c].name for c in s.get("relegated", [])],
                "retired": s.get("retired", []), "left": s.get("left", []),
                "youth": [w.players[i].name for i in s.get("youth", []) if i in w.players],
-               "awards": s.get("awards"), "sponsorNews": (s.get("sponsor") or []) + (s.get("loans") or []),
+               "jobs": s.get("jobs", 0), "awards": s.get("awards"), "sponsorNews": (s.get("sponsor") or []) + (s.get("loans") or []),
                "ballon": {**s["ballon"], "top": [{**t, "club": club_json(w, w.clubs[t["club"]]), "flag": flag(t["nation"])}
                                                  for t in s["ballon"]["top"]]} if s.get("ballon") else None,
                "champions": [{"league": LEAGUES[int(d)]["short"], "club": w.clubs[i["champion"]].name}
@@ -1209,6 +1255,8 @@ def create_app(svc: Service, token: str) -> web.Application:
     r.add_get("/api/calendar", get_calendar)
     r.add_get("/api/totw", get_totw)
     r.add_get("/api/loans", get_loans)
+    r.add_get("/api/jobs", get_jobs)
+    r.add_post("/api/jobs", post_jobs)
     r.add_post("/api/weekly", weekly_claim)
     r.add_post("/api/friendly", friendly)
     r.add_get("/api/table", get_table)

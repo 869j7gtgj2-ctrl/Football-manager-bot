@@ -493,7 +493,7 @@ function careerHead() {
   const ava = p && p.user.photo ? `<img src="${esc(p.user.photo)}" style="width:24px;height:24px;border-radius:50%;position:absolute;right:-6px;bottom:-6px;border:2px solid var(--bg)">` : '';
   return `<div class="chead"><button class="iconbtn" onclick="show('home')">${IC.back}</button>
   <div style="position:relative">${crest(t.club, 44)}${ava}</div><div class="grow"><div class="h ellipsis" style="font-weight:800;font-size:18px">${esc(t.club.name)}</div>
-  <div class="muted" style="font-size:13px;font-weight:700">Сезон ${t.season}</div></div><div class="money">${money(t.budget)}</div></div>`;
+  <div class="muted" style="font-size:13px;font-weight:700">Сезон ${t.season}</div></div><div class="money">${money(t.budget)}</div></div>${t.fired && S.tab !== 'match' ? jobBanner({ fired: true, jobs: t.jobs }) : ''}`;
 }
 function drawCareer() {
   const body = { team: teamTab, match: matchTab, transfer: transferTab, table: tableTab, club: clubTab }[S.tab]();
@@ -697,6 +697,7 @@ function formHTML(f) { return `<div class="form">${(f || []).map(x => `<i class=
 function matchTab() {
   const m = S.match;
   if (S.live) return liveView();
+  if (m.fired) return jobBanner(m);
   if (m.seasonOver) return `<div class="card glow m16" style="padding:22px;margin-top:16px;text-align:center"><div style="font-size:56px">🏁</div>
     <div class="h" style="font-size:22px;font-weight:800;margin:8px 0">Сезон завершено!</div><p class="muted" style="font-weight:700">Підсумки, призові, підвищення і нові вихованці академії чекають.</p>
     <button class="btn gold tap" onclick="endSeason()">Підсумки сезону</button></div>`;
@@ -704,7 +705,7 @@ function matchTab() {
   if (m.draw && !S.drawShown) { S.drawShown = true; setTimeout(() => showDraw(m.draw), 50); }
   const compHead = m.comp ? `<div class="comp-badge ${m.comp.key}">${m.comp.icon} ${esc(m.comp.name)} · ${esc(m.comp.label)}</div>${m.comp.first ? `<div class="muted" style="font-size:12px;font-weight:700;margin-top:6px">Перший матч: ${esc(m.comp.first.home)} ${m.comp.first.hg}:${m.comp.first.ag} ${esc(m.comp.first.away)}</div>` : ''}`
     : `<div class="muted" style="font-weight:800;letter-spacing:.14em;font-size:12px">ТУР ${m.round} / ${m.rounds}</div>`;
-  let html = (m.press ? pressHTML(m.press) : '') + (m.dilemmas || []).map(dilemmaHTML).join('');
+  let html = jobBanner(m) + (m.press ? pressHTML(m.press) : '') + (m.dilemmas || []).map(dilemmaHTML).join('');
   html += `<div class="card glow vs m16 ${m.comp ? 'comp-' + m.comp.key : ''}" style="margin-top:16px">${compHead}
     <div class="teams" style="margin-top:14px"><div class="t">${crest(h, 74)}<span>${esc(h.name)}</span><span class="dim" style="font-size:12px">${h.pos ? h.pos + ' місце' : esc(h.leagueShort)}</span>${formHTML(h.form)}</div>
     <div class="h" style="font-size:22px;color:var(--dim)">VS</div>
@@ -887,7 +888,7 @@ function liveView() {
       <div class="cmp" style="margin:4px 0"><b>${a}</b><div class="bars"><i style="width:${x / ((x + y) || 1) * 100}%"></i><i style="flex:1"></i></div><b style="text-align:right">${b}</b></div>`).join('')}
       <div class="muted" style="text-align:center;font-weight:700;font-size:13px;margin-top:8px">👥 ${r.attendance.toLocaleString('uk')} глядачів</div></div>`;
     if (r.motm) html += `<div class="reward m16" style="margin-top:12px"><div class="ico">🌟</div><div class="grow"><b>Гравець матчу</b><div class="muted" style="font-weight:700">${esc(r.motm.name)}</div></div><div class="plus">${r.motm.rating}</div></div>`;
-    html += `<div class="pad" style="margin-top:14px">${r.fired ? '<button class="btn danger tap" onclick="show(\'home\')">Тебе звільнено</button>' : r.seasonOver ? '<button class="btn gold tap" onclick="S.live=null;endSeason()">🏁 Підсумки сезону</button>' : '<button class="btn tap" onclick="nextMatch()">Далі →</button>'}</div>`;
+    html += `<div class="pad" style="margin-top:14px">${r.fired ? '<button class="btn danger tap" onclick="openJobs()">Тебе звільнено · пропозиції роботи</button>' : r.seasonOver ? '<button class="btn gold tap" onclick="S.live=null;endSeason()">🏁 Підсумки сезону</button>' : '<button class="btn tap" onclick="nextMatch()">Далі →</button>'}</div>`;
   }
   html += `<div class="feed" id="${L.done ? 'feedDone' : 'feed'}" data-n="${evs.length}">${evs.map(e => evHTML(e, r)).join('') || '<div class="empty">Матч почався…</div>'}</div>`;
   if (L.done && r.ratings.length) html += `<div class="section-title">Оцінки гравців</div><div class="card m16 list">${r.ratings.slice(0, 14).map(p => `<div class="item"><span class="ptag">${esc(p.role || POS[p.pos])}</span><b class="grow">${esc(p.name)}${p.goals ? ' ' + '⚽'.repeat(p.goals) : ''}</b><b class="big-num" style="color:${p.rating >= 7.5 ? 'var(--green)' : p.rating >= 6.5 ? 'var(--text)' : 'var(--red)'}">${p.rating}</b></div>`).join('')}</div>`;
@@ -928,7 +929,7 @@ async function endSeason() {
     ${s.promoted.length ? `<p style="font-weight:700">🔺 ${s.promoted.map(esc).join(', ')}<br>🔻 ${s.relegated.map(esc).join(', ')}</p>` : ''}
     ${s.youth.length ? `<p style="font-weight:700">🎓 Вихованці: ${s.youth.map(esc).join(', ')}</p>` : ''}
     ${s.retired.length ? `<p class="muted" style="font-weight:700">👋 Завершили кар’єру: ${s.retired.map(esc).join(', ')}</p>` : ''}
-    ${s.fired ? '<button class="btn danger" onclick="closeSheet();show(\'home\')">Тебе звільнено</button>' : `<button class="btn tap" onclick="closeSheet()">Новий сезон · ціль топ-${s.newTarget}</button>`}`);
+    ${s.fired ? '<button class="btn danger tap" onclick="openJobs()">Тебе звільнено · пропозиції роботи</button>' : `${s.jobs ? `<button class="btn gold tap" style="margin-bottom:10px" onclick="openJobs()">📨 Тебе кличуть інші клуби (${s.jobs})</button>` : ''}<button class="btn tap" onclick="closeSheet()">Новий сезон · ціль топ-${s.newTarget}</button>`}`);
 }
 
 /* ---------------- TRANSFER */
@@ -1075,7 +1076,7 @@ function clubTab() {
     <div class="stepper"><button onclick="clubAct({ticket:-1})">−</button><b class="big-num">€${c.ticket}</b><button onclick="clubAct({ticket:1})">+</button></div></div>
     <div class="section-title">Інфраструктура</div><div class="card m16 list">${Object.entries(up).map(([k, [i, l]]) => `<div class="item"><span style="font-size:26px">${i}</span><b class="grow">${l}</b>${c.upgrades[k] ? `<button class="btn small violet tap" onclick="clubAct({upgrade:'${k}'})">${money(c.upgrades[k])}</button>` : '<span class="chip">MAX</span>'}</div>`).join('')}</div>
     <div class="section-title">Правління</div><div class="card m16" style="padding:16px"><div class="row between"><b>Ціль: топ-${c.target}</b><b>${c.confidence}%</b></div><div class="bar ${c.confidence > 60 ? 'green' : ''}" style="margin-top:10px"><i style="width:${c.confidence}%"></i></div></div>`;
-  html += `<div class="pad" style="margin-top:14px;display:grid;gap:10px"><div class="grid2"><button class="btn ghost tap" onclick="openFinance()">💰 Фінанси</button><button class="btn ghost tap" onclick="openFinance('sponsor')">🤝 Спонсор</button></div><div class="grid2"><button class="btn ghost tap" onclick="openStaff()">👔 Штаб</button><button class="btn ghost tap" onclick="openBallon()">⚽ Золотий м’яч</button></div><div class="grid2"><button class="btn ghost tap" onclick="openLoans()">🔁 Оренди</button><button class="btn ghost tap" onclick="openCalendar()">📅 Календар</button></div><button class="btn ghost tap" style="width:100%" onclick="openRecords()">🏛 Зал слави: рекорди і нагороди</button></div>`;
+  html += `<div class="pad" style="margin-top:14px;display:grid;gap:10px"><div class="grid2"><button class="btn ghost tap" onclick="openFinance()">💰 Фінанси</button><button class="btn ghost tap" onclick="openFinance('sponsor')">🤝 Спонсор</button></div><div class="grid2"><button class="btn ghost tap" onclick="openStaff()">👔 Штаб</button><button class="btn ghost tap" onclick="openBallon()">⚽ Золотий м’яч</button></div><button class="btn ghost tap" style="width:100%" onclick="openJobs()">🧑‍💼 Кар’єра тренера і пропозиції</button><div class="grid2"><button class="btn ghost tap" onclick="openLoans()">🔁 Оренди</button><button class="btn ghost tap" onclick="openCalendar()">📅 Календар</button></div><button class="btn ghost tap" style="width:100%" onclick="openRecords()">🏛 Зал слави: рекорди і нагороди</button></div>`;
   if (c.trophies.length) html += `<div class="section-title">Трофеї</div><div class="card m16 list">${c.trophies.map(t => `<div class="item"><b>${esc(t)}</b></div>`).join('')}</div>`;
   if (c.history.length) html += `<div class="section-title">Історія</div><div class="card m16 list">${c.history.map(h => `<div class="item"><span class="ptag">${h.season}</span><b class="grow">${esc(h.clubName)} · ${esc(h.league)}</b><b>${h.pos} місце</b></div>`).join('')}</div>`;
   html += `<div class="section-title">Новини</div><div class="card m16 list">${c.news.map(n => `<div class="item" style="font-weight:600;font-size:14px">${esc(n)}</div>`).join('') || '<div class="empty">Тиша</div>'}</div>`;
@@ -1136,6 +1137,46 @@ async function openLoans() {
     <div class="cp-sec">Мої гравці в оренді</div><div class="list">${d.out.map(p => row(p, 'грає за')).join('') || '<div class="empty">Нікого. Віддати можна з профілю гравця.</div>'}</div>
     <div class="cp-sec">Орендовані гравці</div><div class="list">${d.in.map(p => row(p, 'з')).join('') || '<div class="empty">Немає</div>'}</div>`);
 }
+
+/* ---------------- manager career */
+function jobBanner(m) {
+  if (m.fired) return `<div class="card glow m16 job-ban fired" style="margin-top:16px"><div style="font-size:46px">🚪</div><div class="h" style="font-size:22px;font-weight:800;text-transform:uppercase">Тебе звільнено</div>
+    <p class="muted" style="font-weight:700;margin:6px 0 14px">Правління втратило довіру. Але футбольний світ не забув тебе: ${m.jobs ? `є ${m.jobs} пропозиції роботи.` : 'пропозиції ось-ось надійдуть.'}</p>
+    <button class="btn gold tap" onclick="openJobs()">📨 Переглянути пропозиції</button></div>`;
+  if (!m.jobs) return '';
+  return `<div class="card m16 job-ban tap" style="margin-top:16px" onclick="openJobs()"><span style="font-size:30px">📞</span><div class="grow"><b>Тобою цікавляться інші клуби</b><div class="muted" style="font-size:12px;font-weight:700">Пропозицій: ${m.jobs}. Торкнись, щоб подивитись</div></div><span class="chip">→</span></div>`;
+}
+function repTier(r) { return r >= 85 ? ['Легенда', '👑'] : r >= 72 ? ['Світова еліта', '🌍'] : r >= 60 ? ['Топ-тренер', '⭐'] : r >= 45 ? ['Перспективний', '📈'] : r >= 30 ? ['Відомий у лізі', '🧭'] : ['Новачок', '🌱']; }
+async function openJobs() {
+  haptic(); S.jobConfirm = null; const j = (await call('/api/jobs')).data; S.jobs = j; jobsSheet();
+}
+function jobsSheet() {
+  const j = S.jobs; const [tier, ti] = repTier(j.rep);
+  const offers = j.items.map(o => `<div class="job ${o.kind}">
+    <div class="row" style="gap:12px">${crest(o.club, 54)}<div class="grow"><div class="h" style="font-size:20px;font-weight:800">${esc(o.club.name)}</div>
+      <div class="muted" style="font-size:12px;font-weight:700">${o.leagueFlag} ${esc(o.league)}${o.pos ? ` · зараз ${o.pos}-е місце` : ''}${o.left ? ` · діє ще ${o.left} тур.` : ''}</div></div>
+      <span class="job-k">${o.kind === 'approach' ? 'ТЕРМІНОВО' : o.kind === 'fired' ? 'ШАНС' : 'ПРОПОЗИЦІЯ'}</span></div>
+    <div class="job-q">«${esc(o.pitch)}»</div>
+    <div class="job-st"><div><b>топ-${o.target}</b><span>ціль</span></div><div><b>${money(o.budget)}</b><span>бюджет</span></div><div><b class="${o.rating > j.myRating ? 'up' : o.rating < j.myRating ? 'dn' : ''}">${o.rating}</b><span>сила (у тебе ${j.myRating})</span></div></div>
+    <div class="job-stars">${o.stars.map(p => `<span>${esc(p.name.split(' ').slice(-1)[0])} <b>${p.skill}</b></span>`).join('')}</div>
+    <button class="btn ${S.jobConfirm === o.club.id ? 'danger' : 'gold'} tap" style="margin-top:12px" onclick="takeJob(${o.club.id})">${S.jobConfirm === o.club.id ? '✅ Так, переходжу (поточний клуб залишиться позаду)' : '✍️ Очолити ' + esc(o.club.name)}</button></div>`).join('');
+  sheet(`<div class="h" style="font-size:24px;font-weight:800;text-transform:uppercase">🧑‍💼 Кар’єра тренера</div>
+    <div class="rep"><div class="row between"><b>${ti} ${tier}</b><b class="big-num" style="color:var(--gold)">${j.rep}</b></div><div class="bar" style="margin-top:8px"><i style="width:${j.rep}%;background:linear-gradient(90deg,#c9952f,#f5d78e)"></i></div>
+    <div class="muted" style="font-size:12px;font-weight:700;margin-top:6px">Репутація росте від виконаних цілей і трофеїв. Що вона вища, то сильніші клуби кличуть.</div></div>
+    ${j.repLog.length ? `<div class="list" style="margin-top:6px">${j.repLog.map(x => `<div class="item" style="font-size:13px;font-weight:700"><span class="ptag">С${x.season}</span><span class="grow">${esc(x.why)}</span><b style="color:${x.d >= 0 ? 'var(--green)' : 'var(--red)'}">${x.d >= 0 ? '+' : ''}${x.d}</b></div>`).join('')}</div>` : ''}
+    <div class="cp-sec">${j.fired ? 'Хто готовий дати шанс' : 'Пропозиції'}</div>
+    ${offers || `<div class="empty">Поки тиша. Виконуй цілі, вигравай трофеї, і телефон задзвонить.</div>`}
+    ${j.items.length && !j.fired ? '<button class="btn ghost tap" style="margin-top:12px" onclick="declineJobs()">🤝 Залишитись у клубі (+5 довіри)</button>' : ''}
+    ${j.career.length ? `<div class="cp-sec">Шлях тренера</div><div class="list">${j.career.map(x => `<div class="item" style="font-size:13px;font-weight:700"><span class="ptag">${esc(x.season)}</span><span class="grow">${esc(x.from)} → <b>${esc(x.to)}</b></span></div>`).join('')}</div>` : ''}`);
+}
+async function takeJob(id) {
+  haptic();
+  if (S.jobConfirm !== id) { S.jobConfirm = id; return jobsSheet(); }
+  S.jobConfirm = null;
+  await call('/api/jobs', { club: id }); haptic('success'); confetti(140);
+  closeSheet(); S.team = null; S.drawShown = false; await openCareer();
+}
+async function declineJobs() { const r = await call('/api/jobs', { decline: true }); S.jobs = r.data; closeSheet(); if (S.view === 'career') await loadTab(); }
 
 /* ---------------- sheet */
 function sheet(html) {
