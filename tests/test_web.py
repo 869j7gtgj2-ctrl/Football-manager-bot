@@ -50,7 +50,7 @@ async def test_full_flow(tmp_path):
             assert "hg" in res and res["xp"] > 0
         # live match: first half, half-time decisions, second half
         ht = (await (await c.post("/api/match/play", json={}, headers=h)).json())["data"]
-        assert ht["half"] and ht["minute"] == 45 and len(ht["lineup"]) == 11 and ht["bench"]
+        assert ht["half"] and ht["minute"] == 45 and 9 <= len(ht["lineup"]) <= 11 and ht["bench"]
         assert all(e["min"] <= 45 for e in ht["events"])
         sub = [[ht["lineup"][-1]["id"], ht["bench"][0]["id"]]]
         res = (await (await c.post("/api/match/second", json={"talk": "fire", "style": "attacking", "subs": sub},
@@ -100,3 +100,39 @@ async def test_season_report_sent_to_chat(tmp_path):
         assert j["ok"]
         report = [t for _, t in sent if "Сезон 2026/27 завершено" in t]
         assert report and "Рівень" in report[0] and "▰" in report[0] + "▱"
+
+
+@pytest.mark.asyncio
+async def test_staff_weekly_and_friends(tmp_path):
+    svc = Service(Storage(str(tmp_path / "db.sqlite")))
+    sent = []
+
+    async def notify(uid, text):
+        sent.append((uid, text))
+    svc.notify = notify
+    app = create_app(svc, TOKEN)
+    async with TestClient(TestServer(app)) as c:
+        hs = {}
+        for uid, club_name in ((11, "Шахтар"), (12, "Динамо Київ")):
+            h = hs[uid] = {"X-Init-Data": signed({"id": uid, "first_name": f"M{uid}"})}
+            draft = (await (await c.post("/api/career/draft", json={"slot": 0}, headers=h)).json())["data"]
+            club = next(x for l in draft["leagues"] for x in l["clubs"] if x["name"] == club_name)
+            await c.post("/api/career/create", json={"slot": 0, "club_id": club["id"]}, headers=h)
+        h = hs[11]
+        st = (await (await c.get("/api/staff", headers=h)).json())["data"]
+        assert len(st["roles"]) == 4 and all(r["member"] is None for r in st["roles"])
+        scout = next(r for r in st["roles"] if r["role"] == "scout")
+        j = await (await c.post("/api/staff", json={"role": "scout", "id": scout["candidates"][0]["id"]}, headers=h)).json()
+        assert j["ok"] and j["data"]["scout"] and j["data"]["wages"] > 0
+        for _ in range(3):
+            await c.post("/api/match/play", json={"fast": True}, headers=h)
+        fr = (await (await c.get("/api/friends", headers=h)).json())["data"]
+        assert len(fr["rows"]) == 2 and len(fr["weekly"]["items"]) == 3
+        assert sum(1 for i in fr["weekly"]["items"] if i["progress"] > 0) >= 1
+        j = await (await c.post("/api/friendly", json={"uid": 12}, headers=h)).json()
+        assert j["ok"] and "hg" in j["data"] and sent and sent[-1][0] == 12
+        j = await (await c.post("/api/friendly", json={"uid": 12}, headers=h)).json()
+        assert not j["ok"]
+        fr = (await (await c.get("/api/friends", headers=hs[12])).json())["data"]
+        other = next(r for r in fr["rows"] if r["uid"] == 11)
+        assert other["h2h"] and sum(other["h2h"][k] for k in "wdl") == 1

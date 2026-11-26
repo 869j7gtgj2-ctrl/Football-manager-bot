@@ -97,6 +97,9 @@ class Service:
             home = res["home"] == w.club_id
             gf, ga = (res["hg"], res["ag"]) if home else (res["ag"], res["hg"])
             res["xp"] = prof.on_match(gf, ga)
+            goals = [e for e in res.get("events", []) if e.get("type") == "goal"]
+            first_against = bool(goals) and (goals[0]["side"] == 0) != home
+            prof.on_weekly(gf, ga, first_against, bool(res.get("comp")))
             res["coins"] = prof.last_coins
             if res.get("home") in (w.club_id,) or res.get("away") == w.club_id:
                 from .game import events as ev
@@ -129,6 +132,80 @@ class Service:
             "awards": awards, "confidence": w.confidence, "fired": w.fired, "new_target": w.board_target,
         })
         return summary
+
+    # ---------------------------------------------------------------- friends
+    def friends(self, uid: int) -> list[dict]:
+        from .game.match import pick_lineup
+        from .game.season import table
+        out = []
+        for p in self.st.all_profiles():
+            w = self.st.load(p.user_id, p.active_slot)
+            if w is None or w.club_id not in w.clubs:
+                continue
+            c = w.club
+            rows = table(w, c.division)
+            pos = next((i + 1 for i, r in enumerate(rows) if r["club"] == c.id), None)
+            lu = pick_lineup(w, c, auto=True)
+            wk = p.weekly_list() if p.weekly.get("week") else None
+            out.append({"uid": p.user_id, "name": p.name, "level": p.rank[1], "rank": p.rank[0], "xp": p.xp,
+                        "club": c, "world": w, "pos": pos, "season": w.season,
+                        "rating": round(sum(x.skill for _, x in lu) / max(1, len(lu))),
+                        "trophies": len([t for t in w.trophies if t.startswith("🏆")]),
+                        "weekly": sum(1 for i in (wk or {}).get("items", []) if i["done"]),
+                        "me": p.user_id == uid, "h2h": self.st.profile(uid).h2h.get(str(p.user_id))})
+        out.sort(key=lambda x: (-x["xp"], x["uid"]))
+        return out
+
+    def friendly(self, uid: int, fid: int, rng: random.Random | None = None) -> tuple[bool, str, dict | None]:
+        """Friendly between my active club and a friend's active club (each from its own world)."""
+        import math
+        from .game.match import TeamState, bench, expected_goals, pick_lineup, weighted_pick
+        from .meta import today
+        if uid == fid:
+            return False, "Не можна зіграти з самим собою.", None
+        rng = rng or random.Random()
+        me, fr = self.st.profile(uid), self.st.profile(fid)
+        w1, w2 = self.st.load(uid, me.active_slot), self.st.load(fid, fr.active_slot)
+        if not w1 or not w2:
+            return False, "У когось із вас немає активної кар’єри.", None
+        rec = me.h2h.setdefault(str(fid), {"w": 0, "d": 0, "l": 0, "last": ""})
+        if rec.get("last") == today():
+            return False, "Сьогодні ви вже грали. Реванш завтра!", None
+        teams = []
+        for w in (w1, w2):
+            lu = pick_lineup(w, w.club, auto=True)
+            teams.append(TeamState(club=w.club, lineup=lu, bench=bench(w, w.club, lu)))
+        s1, s2 = teams[0].strengths(), teams[1].strengths()
+        x1, poss = expected_goals(s1, s2, True)
+        x2, _ = expected_goals(s2, s1, False)
+
+        def pois(lam):
+            l, k, p = math.exp(-lam), 0, 1.0
+            while True:
+                p *= rng.random()
+                if p <= l:
+                    return k
+                k += 1
+        g1, g2 = pois(x1), pois(x2)
+        goals = []
+        for side, n in ((0, g1), (1, g2)):
+            for _ in range(n):
+                pl = weighted_pick(rng, teams[side].lineup, {"FW": 5, "MF": 2.5, "DF": 0.6, "GK": 0})
+                goals.append({"min": rng.randint(1, 90), "side": side, "name": pl.name if pl else ""})
+        goals.sort(key=lambda g: g["min"])
+        res = "w" if g1 > g2 else "d" if g1 == g2 else "l"
+        rec[res] += 1
+        rec["last"] = today()
+        coins = {"w": 8, "d": 4, "l": 2}[res]
+        me.coins += coins
+        frec = fr.h2h.setdefault(str(uid), {"w": 0, "d": 0, "l": 0, "last": ""})
+        frec[{"w": "l", "l": "w", "d": "d"}[res]] += 1
+        self.st.save_profile(me)
+        self.st.save_profile(fr)
+        out = {"home": w1.club, "away": w2.club, "hg": g1, "ag": g2, "goals": goals, "coins": coins,
+               "possession": round(poss * 100), "xg": [round(x1, 2), round(x2, 2)], "rec": rec,
+               "friend": fr.name, "friendUid": fid}
+        return True, f"{w1.club.name} {g1}:{g2} {w2.club.name}", out
 
     # ---------------------------------------------------------------- shop
     def buy_item(self, w, prof: Profile, item: str) -> tuple[bool, str]:

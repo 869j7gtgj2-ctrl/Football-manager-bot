@@ -449,6 +449,29 @@ def records_json(w) -> dict:
             "awards": w.awards, "trophies": w.trophies, "history": w.history[-10:]}
 
 
+def staff_json(w) -> dict:
+    from ..game import staff as stf
+    cands = stf.candidates(w)
+    roles = []
+    for d in stf.describe(w):
+        cur = d["member"]["level"] if d["member"] else 0
+        roles.append({**d, "candidates": [{**c, "flag": flag(c["nation"]), "fee": stf.hire_fee(w, c["level"]),
+                                           "wage": stf.wage(w, c["level"]), "better": c["level"] > cur}
+                                          for c in cands.get(d["role"], [])]})
+    return {"roles": roles, "budget": w.club.budget, "wages": stf.staff_wages(w),
+            "scout": [{**player_json(w, p), "clubInfo": club_json(w, w.clubs[p.club_id]) if p.club_id else None,
+                       "price": asking_price(w, p.id) if p.club_id else 0} for p in stf.scout_picks(w)]}
+
+
+def friends_json(svc, uid: int) -> dict:
+    rows = []
+    for f in svc.friends(uid):
+        w = f.pop("world")
+        rows.append({**f, "club": club_json(w, f["club"]), "league": LEAGUES[f["club"].division]["short"]})
+    me = svc.st.profile(uid)
+    return {"rows": rows, "weekly": me.weekly_list()}
+
+
 def table_json(w, league: int) -> dict:
     rows = table(w, league)
     out = []
@@ -760,6 +783,51 @@ def create_app(svc: Service, token: str) -> web.Application:
             return fail("Немає активної кар’єри.", 404)
         return ok(records_json(w))
 
+    async def get_staff(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        return ok(staff_json(w))
+
+    async def staff_action(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        b = await body(request)
+        from ..game import staff as stf
+        if b.get("action") == "fire":
+            good, msg = stf.fire(w, str(b.get("role", "")))
+        else:
+            good, msg = stf.hire(w, str(b.get("role", "")), str(b.get("id", "")))
+        if not good:
+            return fail(msg)
+        svc.st.save(w)
+        return ok(staff_json(w), msg)
+
+    async def get_friends(request):
+        return ok(friends_json(svc, request["uid"]))
+
+    async def weekly_claim(request):
+        uid = request["uid"]
+        async with locks[uid]:
+            prof = svc.st.profile(uid)
+            good, msg = prof.claim_weekly(str((await body(request)).get("id", "")))
+            if not good:
+                return fail(msg)
+            svc.st.save_profile(prof)
+        return ok(friends_json(svc, uid), msg)
+
+    async def friendly(request):
+        uid = request["uid"]
+        fid = int((await body(request)).get("uid", 0))
+        good, msg, res = svc.friendly(uid, fid)
+        if not good:
+            return fail(msg)
+        await svc.send(fid, f"🤝 <b>{res['home'].name}</b> {res['hg']}:{res['ag']} <b>{res['away'].name}</b>\n"
+                            f"Твій друг зіграв проти тебе товариський матч. Відкрий гру і візьми реванш!")
+        res["home"], res["away"] = club_json(None, res["home"]), club_json(None, res["away"])
+        return ok(res, msg)
+
     async def season_end(request):
         w, prof = world(request)
         if w is None or not season_over(w):
@@ -945,6 +1013,11 @@ def create_app(svc: Service, token: str) -> web.Application:
     r.add_post("/api/press", press_answer)
     r.add_post("/api/dilemma", dilemma_answer)
     r.add_get("/api/records", get_records)
+    r.add_get("/api/staff", get_staff)
+    r.add_post("/api/staff", staff_action)
+    r.add_get("/api/friends", get_friends)
+    r.add_post("/api/weekly", weekly_claim)
+    r.add_post("/api/friendly", friendly)
     r.add_get("/api/table", get_table)
     r.add_get("/api/market", get_market)
     r.add_get("/api/player", get_player)

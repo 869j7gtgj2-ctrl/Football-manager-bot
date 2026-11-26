@@ -607,3 +607,23 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 .aw.mine{border-color:rgba(227,181,74,.5);background:linear-gradient(160deg,rgba(227,181,74,.16),var(--card2))}
 .rk{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;background:var(--card2);font-weight:800;font-size:12px}
 .rk.g{background:linear-gradient(135deg,var(--goldL),var(--gold2));color:#1a1408}
+
+/* ---------------- batch 2: weekly, friends, staff */
+.wk{padding:6px 16px}
+.wk-i{display:flex;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+.wk-i.done b{color:var(--goldL)}
+.wk-r{color:var(--muted);font-weight:800;font-size:13px;white-space:nowrap;display:flex;gap:4px;align-items:center}
+.wk-bonus{display:flex;gap:12px;align-items:center;padding:14px 0 10px}
+.wk-bonus.ready b{color:var(--goldL)}
+.fr{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
+.fr:last-child{border-bottom:0}
+.fr.me{background:linear-gradient(90deg,rgba(227,181,74,.12),transparent)}
+.staff{padding:14px 0;border-bottom:1px solid var(--line)}
+.st-ic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:22px;background:rgba(227,181,74,.12);flex:none}
+.st-m{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--card2);font-size:14px}
+.st-m.vac{color:var(--muted);font-weight:700;justify-content:center;border:1px dashed var(--line2);background:none}
+.st-c{display:flex;gap:10px;align-items:center;margin-top:8px;padding:8px 12px;border-radius:10px;border:1px solid var(--line)}
+.stars{color:var(--gold);letter-spacing:1px;font-size:13px}
+.stars i{font-style:normal;color:rgba(255,255,255,.14)}
+.fr-vs{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin-top:14px}
+.fr-vs>div:not(.score){display:flex;flex-direction:column;align-items:center;gap:8px;font-size:14px}

@@ -41,6 +41,11 @@ class Storage:
                               (p.user_id, json.dumps(p.to_dict(), ensure_ascii=False)))
             self.conn.commit()
 
+    def all_profiles(self) -> list[Profile]:
+        with self._lock:
+            rows = self.conn.execute("SELECT data FROM profiles").fetchall()
+        return [Profile.from_dict(json.loads(r[0])) for r in rows]
+
     # ------------------------------------------------------------ careers
     def load(self, user_id: int, slot: int | None = None) -> World | None:
         if slot is None:

@@ -129,7 +129,11 @@ def sponsor_income(club) -> int:
 
 
 def wage_bill(world: World, club_id: int) -> int:
-    return sum(p.wage for p in world.squad(club_id))
+    total = sum(p.wage for p in world.squad(club_id))
+    if club_id == world.club_id and world.staff:
+        from .staff import staff_wages
+        total += staff_wages(world)
+    return total
 
 
 # ---------------------------------------------------------------- development
@@ -150,14 +154,16 @@ def growth_base(age: int) -> float:
 def develop(world: World, club, played: set[int], rng: random.Random, rounds: int) -> list[str]:
     msgs = []
     focus = world.training if club.is_user else "balanced"
+    staff = world.staff if club.is_user else {}
+    st = lambda r: staff[r]["level"] if r in staff else 0
     for p in world.squad(club.id):
         # recovery
-        rec = 18 + (8 if focus == "fitness" else 0) + club.training_level
+        rec = 18 + (8 if focus == "fitness" else 0) + club.training_level + 3 * st("fitness")
         p.fitness = min(100, p.fitness + rec)
         p.morale += (70 - p.morale) // 10
         if p.skill >= p.potential:
             continue
-        mult = 0.7 + 0.15 * club.training_level
+        mult = (0.7 + 0.15 * club.training_level) * (1 + 0.08 * st("assistant"))
         if focus == "youth" and p.age <= 21:
             mult *= 1.3
         elif focus == "attack" and p.pos in ("FW", "MF"):
@@ -464,6 +470,8 @@ def end_season(world: World, rng: random.Random | None = None) -> dict:
         n = 2 + (1 if club.academy_level >= 3 else 0) + (1 if club.academy_level >= 5 else 0)
         for _ in range(n if club.is_user else 1):
             y = youth_player(world, rng, club)
+            if club.is_user and "scout" in world.staff:
+                y.potential = min(96, y.potential + 2 * world.staff["scout"]["level"])
             world.players[y.id] = y
             if club.is_user:
                 youth.append(y.id)

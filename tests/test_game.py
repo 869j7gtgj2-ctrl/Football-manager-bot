@@ -119,6 +119,9 @@ def test_cups_full_season():
 
         def on_match(self, a, b):
             return 0
+
+        def on_weekly(self, *a):
+            pass
     w = new_world(1, "T", seed=11)
     cid = next(c.id for c in w.clubs.values() if c.division == 1)
     start_career(w, cid, random.Random(2))

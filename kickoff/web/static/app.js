@@ -87,6 +87,7 @@ function confetti(n = 140) {
 
 /* ---------------- icons */
 const IC = {
+  users: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1.2-3.6 3.6-5.4 6.5-5.4s5.3 1.8 6.5 5.4"/><circle cx="17" cy="9" r="2.8"/><path d="M16 14.7c2.6-.3 4.6 1.2 5.5 4.3"/></svg>',
   user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
   shop: '<svg viewBox="0 0 24 24"><path d="M6 7h12l-1 13H7L6 7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>',
   coin: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M14.8 9.2c-.5-.8-1.6-1.3-2.8-1.3-1.7 0-3 .9-3 2.1 0 2.8 6 1.4 6 4.2 0 1.2-1.3 2.1-3 2.1-1.3 0-2.4-.5-2.9-1.4M12 6v1.9M12 16.3V18"/></svg>',
@@ -128,7 +129,7 @@ function nav() {
     const offers = S.team && S.team.offers;
     return `<nav class="nav">${t.map(([k, l, i]) => `<button class="${S.tab === k ? 'on' : ''}" onclick="go('${k}')">${i}${l}${k === 'transfer' && offers ? '<span class="dot"></span>' : ''}</button>`).join('')}</nav>`;
   }
-  const t = [['home', 'Профіль', IC.user], ['shop', 'Магазин', IC.shop], ['earn', 'Заробіток', IC.coin]];
+  const t = [['home', 'Профіль', IC.user], ['friends', 'Друзі', IC.users], ['shop', 'Магазин', IC.shop], ['earn', 'Заробіток', IC.coin]];
   const dot = S.profile && (S.profile.daily.available || S.profile.claimable);
   return `<nav class="nav">${t.map(([k, l, i]) => `<button class="${S.view === k ? 'on' : ''}" onclick="show('${k}')">${i}${l}${k === 'earn' && dot ? '<span class="dot"></span>' : ''}</button>`).join('')}</nav>`;
 }
@@ -139,10 +140,11 @@ async function show(view) {
   haptic();
   S.view = view;
   if (['home', 'shop', 'earn'].includes(view)) { await loadProfile(); }
+  if (view === 'friends') S.friends = (await call('/api/friends')).data;
   draw();
 }
 function draw() {
-  ({ home: drawHome, shop: drawShop, earn: drawEarn, career: drawCareer, newcareer: drawNewCareer }[S.view] || drawHome)();
+  ({ home: drawHome, friends: drawFriends, shop: drawShop, earn: drawEarn, career: drawCareer, newcareer: drawNewCareer }[S.view] || drawHome)();
   window.scrollTo && S.keepScroll !== true && window.scrollTo(0, 0);
   S.keepScroll = false;
 }
@@ -220,6 +222,61 @@ async function unlockSlot() {
 }
 async function doUnlock() { closeSheet(); const j = await call('/api/slot/unlock', {}); S.profile = j.data; confetti(); haptic('success'); draw(); }
 async function selectSlot(slot) { const j = await call('/api/career/select', { slot }); S.profile = j.data; openCareer(); }
+
+/* ---------------- FRIENDS & WEEKLY */
+function drawFriends() {
+  const f = S.friends, wk = f.weekly;
+  let html = `<div class="chead"><div class="grow h" style="font-size:20px;font-weight:800">Друзі і виклики</div></div>
+    <div class="section-title">🗓 Виклики тижня <small>${esc(wk.week.replace('-W', ' · тиждень '))}</small></div><div class="card m16 wk">`;
+  html += wk.items.map(t => `<div class="wk-i ${t.done ? 'done' : ''}"><div class="grow"><b>${esc(t.title)}</b>
+      <div class="bar ${t.done ? 'green' : ''}" style="margin-top:8px"><i style="width:${t.progress / t.goal * 100}%"></i></div>
+      <div class="muted" style="font-size:12px;font-weight:700;margin-top:5px">${t.progress} / ${t.goal}</div></div>
+      ${t.claimed ? '<span class="chip">✓</span>' : t.done ? `<button class="btn small gold tap" onclick="claimWeekly('${t.id}')">+${t.coins} <span class="coin"></span></button>` : `<span class="wk-r">+${t.coins} <span class="coin"></span></span>`}</div>`).join('');
+  html += `<div class="wk-bonus ${wk.bonusReady ? 'ready' : ''}"><span style="font-size:26px">💎</span><div class="grow"><b>Бонус за всі три</b><div class="muted" style="font-size:12px;font-weight:700">${wk.bonusTaken ? 'Забрано. Нові виклики в понеділок' : 'Виконай усі виклики тижня'}</div></div>
+    ${wk.bonusReady ? `<button class="btn small gold tap" onclick="claimWeekly('bonus')">+${wk.bonusGems} 💎</button>` : `<b>+${wk.bonusGems} 💎</b>`}</div></div>`;
+  html += `<div class="section-title">🏆 Рейтинг менеджерів <small>${f.rows.length}</small></div><div class="card m16 list">`;
+  html += f.rows.map((r, i) => `<div class="fr ${r.me ? 'me' : ''}"><span class="rk ${i === 0 ? 'g' : ''}">${i + 1}</span>${crest(r.club, 44)}
+    <div class="grow" style="min-width:0"><b class="ellipsis" style="display:block">${esc(r.name)}${r.me ? ' <span class="dim">(ти)</span>' : ''}</b>
+    <div class="muted ellipsis" style="font-size:12px;font-weight:700">${esc(r.club.name)} · ${esc(r.league)} · ${r.pos} місце · ⭐${r.rating}</div>
+    <div class="muted" style="font-size:12px;font-weight:700">Рів. ${r.level} · ${esc(r.rank)} · 🏆${r.trophies}${r.h2h ? ` · ти проти: ${r.h2h.w}-${r.h2h.d}-${r.h2h.l}` : ''}</div></div>
+    ${r.me ? '' : `<button class="btn small tap" onclick="playFriendly(${r.uid})">⚔️</button>`}</div>`).join('') || '<div class="empty">Поки нікого. Запроси друзів у бота!</div>';
+  html += `</div><p class="muted pad" style="font-size:13px;font-weight:600;margin-top:10px">⚔️ Товариський матч: твій клуб проти клубу друга, раз на день з кожним. Перемога +8 монет, нічия +4. Друг отримає сповіщення про результат.</p>`;
+  render(html);
+}
+async function claimWeekly(id) {
+  const j = await call('/api/weekly', { id }); S.friends = j.data; haptic('success'); confetti(id === 'bonus' ? 160 : 70); S.keepScroll = true; draw();
+}
+async function playFriendly(uid) {
+  haptic('medium');
+  let j; try { j = await api('/api/friendly', { uid }); } catch (e) { toast(e.message, 'bad'); return; }
+  const r = j.data; const win = r.hg > r.ag;
+  if (win) confetti(150);
+  sheet(`<div style="text-align:center"><div class="muted" style="font-size:11px;font-weight:800;letter-spacing:.14em">ТОВАРИСЬКИЙ МАТЧ · ${esc(r.friend)}</div>
+    <div class="fr-vs"><div>${crest(r.home, 60)}<b>${esc(r.home.name)}</b></div><div class="score" style="font-size:46px">${r.hg}:${r.ag}</div><div>${crest(r.away, 60)}<b>${esc(r.away.name)}</b></div></div>
+    <div class="muted" style="font-weight:700;font-size:13px;margin:8px 0">Володіння ${r.possession}% · xG ${r.xg[0]} : ${r.xg[1]}</div></div>
+    <div class="list">${r.goals.map(g => `<div class="item" style="${g.side ? 'flex-direction:row-reverse;text-align:right' : ''}"><span class="ptag">${g.min}'</span><b class="grow">⚽ ${esc(g.name)}</b></div>`).join('') || '<div class="empty">Без голів</div>'}</div>
+    <p style="text-align:center;font-weight:800">${win ? '🎉 Перемога' : r.hg === r.ag ? '🤝 Нічия' : '😤 Поразка'} · +${r.coins} <span class="coin"></span><br><span class="muted" style="font-size:13px">Особисті зустрічі: ${r.rec.w} В · ${r.rec.d} Н · ${r.rec.l} П</span></p>
+    <button class="btn tap" onclick="closeSheet()">Готово</button>`);
+  S.friends = (await call('/api/friends')).data; S.keepScroll = true; draw();
+}
+
+/* ---------------- STAFF */
+async function openStaff() {
+  haptic();
+  S.staff = (await call('/api/staff')).data; staffSheet();
+}
+function staffSheet() {
+  const s = S.staff;
+  sheet(`<div class="muted" style="font-size:11px;font-weight:800;letter-spacing:.14em">ТРЕНЕРСЬКИЙ ШТАБ</div><div class="h" style="font-size:22px;font-weight:800;margin:2px 0 4px">Твоя команда фахівців</div>
+    <p class="muted" style="font-weight:600;font-size:13px;margin:0 0 6px">Бюджет ${money(s.budget)} · зарплати штабу ${money(s.wages)}/тиж</p>
+    ${s.roles.map(r => `<div class="staff"><div class="row" style="gap:12px"><span class="st-ic">${r.icon}</span><div class="grow"><b>${esc(r.title)}</b><div class="muted" style="font-size:12px;font-weight:600">${esc(r.info)}</div></div></div>
+      ${r.member ? `<div class="st-m"><span>${r.member.flag} <b>${esc(r.member.name)}</b> · ${r.member.age} р.</span><span class="stars">${'★'.repeat(r.member.level)}<i>${'★'.repeat(5 - r.member.level)}</i></span></div>` : '<div class="st-m vac">Вакансія</div>'}
+      ${r.candidates.filter(c => c.better).map(c => `<div class="st-c"><div class="grow"><b>${c.flag} ${esc(c.name)}</b> <span class="stars">${'★'.repeat(c.level)}<i>${'★'.repeat(5 - c.level)}</i></span><div class="muted" style="font-size:12px;font-weight:700">${c.age} р. · ${money(c.wage)}/тиж</div></div><button class="btn small gold tap" onclick="hireStaff('${r.role}','${c.id}')">${money(c.fee)}</button></div>`).join('')}</div>`).join('')}
+    ${s.scout.length ? `<div class="ht-t">🔭 Звіт скаута: таланти на ринку</div><div class="list">${s.scout.map(p => `<div class="item tap" onclick="closeSheet();openPlayer(${p.id})"><span class="role">${esc(p.role)}</span><div class="grow" style="min-width:0"><b class="ellipsis" style="display:block">${p.flag} ${esc(p.name)}</b><div class="muted ellipsis" style="font-size:12px;font-weight:700">${p.age} р. · ${p.clubInfo ? esc(p.clubInfo.name) : 'вільний'} · ${money(p.price)}</div></div><b>${p.skill}</b><b style="color:var(--pink)">→${p.pot}</b></div>`).join('')}</div>` : ''}`);
+}
+async function hireStaff(role, id) {
+  try { const j = await api('/api/staff', { role, id }); S.staff = j.data; toast(j.message, 'good'); haptic('success'); confetti(60); staffSheet(); } catch (e) { toast(e.message, 'bad'); }
+}
 
 /* ---------------- SHOP */
 function drawShop() {
@@ -922,7 +979,7 @@ function clubTab() {
     <div class="stepper"><button onclick="clubAct({ticket:-1})">−</button><b class="big-num">€${c.ticket}</b><button onclick="clubAct({ticket:1})">+</button></div></div>
     <div class="section-title">Інфраструктура</div><div class="card m16 list">${Object.entries(up).map(([k, [i, l]]) => `<div class="item"><span style="font-size:26px">${i}</span><b class="grow">${l}</b>${c.upgrades[k] ? `<button class="btn small violet tap" onclick="clubAct({upgrade:'${k}'})">${money(c.upgrades[k])}</button>` : '<span class="chip">MAX</span>'}</div>`).join('')}</div>
     <div class="section-title">Правління</div><div class="card m16" style="padding:16px"><div class="row between"><b>Ціль: топ-${c.target}</b><b>${c.confidence}%</b></div><div class="bar ${c.confidence > 60 ? 'green' : ''}" style="margin-top:10px"><i style="width:${c.confidence}%"></i></div></div>`;
-  html += `<div class="pad" style="margin-top:14px"><button class="btn ghost tap" style="width:100%" onclick="openRecords()">🏛 Зал слави: рекорди і нагороди</button></div>`;
+  html += `<div class="pad" style="margin-top:14px;display:grid;gap:10px"><button class="btn ghost tap" style="width:100%" onclick="openStaff()">👔 Тренерський штаб</button><button class="btn ghost tap" style="width:100%" onclick="openRecords()">🏛 Зал слави: рекорди і нагороди</button></div>`;
   if (c.trophies.length) html += `<div class="section-title">Трофеї</div><div class="card m16 list">${c.trophies.map(t => `<div class="item"><b>${esc(t)}</b></div>`).join('')}</div>`;
   if (c.history.length) html += `<div class="section-title">Історія</div><div class="card m16 list">${c.history.map(h => `<div class="item"><span class="ptag">${h.season}</span><b class="grow">${esc(h.clubName)} · ${esc(h.league)}</b><b>${h.pos} місце</b></div>`).join('')}</div>`;
   html += `<div class="section-title">Новини</div><div class="card m16 list">${c.news.map(n => `<div class="item" style="font-weight:600;font-size:14px">${esc(n)}</div>`).join('') || '<div class="empty">Тиша</div>'}</div>`;

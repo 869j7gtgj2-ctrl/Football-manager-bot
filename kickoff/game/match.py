@@ -325,10 +325,12 @@ class Sim:
                         team.lineup = [(s, x) for s, x in team.lineup if x.id != p.id]
                         self.minutes_played[p.id] = minute - self.starts.get(p.id, 0)
                         events.append({"min": minute, "type": "red", "side": side, "player": p.id, "second": False})
-                if rng.random() < 0.13 / 90:
+                physio = self.world.staff.get("physio", {}).get("level", 0) if team.club.id == self.world.club_id else 0
+                if rng.random() < 0.13 / 90 * (1 - 0.1 * physio):
                     p = weighted_pick(rng, team.lineup, {"DF": 1, "MF": 1, "FW": 1, "GK": 0.3})
                     if p:
                         weeks = rng.choices([1, 2, 3, 5, 8], weights=[35, 30, 18, 12, 5])[0]
+                        weeks = max(1, round(weeks * (1 - 0.15 * physio)))
                         self.injuries.append((p.id, weeks))
                         events.append({"min": minute, "type": "injury", "side": side, "player": p.id, "weeks": weeks})
                         self._substitute(team, p, minute, "injury")

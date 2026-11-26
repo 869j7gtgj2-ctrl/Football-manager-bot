@@ -170,6 +170,9 @@ class World:
     press: dict = field(default_factory=dict)    # open post-match press conference
     records: dict = field(default_factory=dict)  # club records hub
     awards: list = field(default_factory=list)   # season awards history
+    staff: dict = field(default_factory=dict)  # role -> {"name","nation","level","age"}
+    staff_market: dict = field(default_factory=dict)
+    challenge: dict = field(default_factory=dict)  # weekly challenge progress for this career
     dilemmas: list = field(default_factory=list)  # player situations waiting for a decision  # agent proposals: {"id","pid","fee","until","note"}
     season_finances: dict = field(default_factory=lambda: {"income": 0, "wages": 0, "transfers_in": 0, "transfers_out": 0})
 

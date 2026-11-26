@@ -33,6 +33,25 @@ ACHIEVEMENTS = {
     "unbeaten5": {"title": "5 матчів без поразок", "reward": 25},
 }
 
+# weekly challenges: 3 are picked per ISO week (same for every manager, so friends can race)
+WEEKLY = {
+    "w_wins": {"title": "Виграй 8 матчів", "goal": 8, "counter": "wins", "coins": 40},
+    "w_goals": {"title": "Забий 25 голів", "goal": 25, "counter": "goals", "coins": 40},
+    "w_clean": {"title": "Зіграй на нуль 4 рази", "goal": 4, "counter": "clean", "coins": 45},
+    "w_big": {"title": "Розгроми суперника 3 рази (3+ голи різниці)", "goal": 3, "counter": "rout", "coins": 50},
+    "w_unbeaten": {"title": "Серія 6 матчів без поразок", "goal": 6, "counter": "streak", "coins": 50},
+    "w_matches": {"title": "Зіграй 15 матчів", "goal": 15, "counter": "matches", "coins": 30},
+    "w_comeback": {"title": "Не програй, пропустивши першим, 2 рази", "goal": 2, "counter": "comeback", "coins": 55},
+    "w_cup": {"title": "Виграй 2 кубкові або єврокубкові матчі", "goal": 2, "counter": "cupwins", "coins": 45},
+}
+WEEKLY_BONUS_GEMS = 10
+
+
+def week_key() -> str:
+    y, w, _ = dt.date.today().isocalendar()
+    return f"{y}-W{w:02d}"
+
+
 PREMIUM = {
     "slot": {"title": "Додатковий слот кар’єри", "desc": "Ще одна паралельна кар’єра в іншому клубі", "price": 60, "icon": "🗂"},
     "legend": {"title": "Легендарний скаут", "desc": "Вундеркінд 16-17 років з потенціалом 88+ у твоїй команді",
@@ -82,6 +101,8 @@ class Profile:
     achievements: dict = field(default_factory=dict)  # id -> "done" | "claimed"
     unbeaten: int = 0
     last_coins: int = 0
+    weekly: dict = field(default_factory=dict)
+    h2h: dict = field(default_factory=dict)  # friend uid (str) -> {"w","d","l","last": date}  # {"week", "c": counters, "claimed": [ids], "bonus": bool}
 
     # ---------- serialisation
     def to_dict(self) -> dict:
@@ -167,6 +188,66 @@ class Profile:
     def achieve(self, aid: str) -> None:
         if aid in ACHIEVEMENTS and aid not in self.achievements:
             self.achievements[aid] = "done"
+
+    # ---------- weekly challenges
+    def roll_week(self) -> None:
+        if self.weekly.get("week") != week_key():
+            self.weekly = {"week": week_key(), "c": {}, "claimed": [], "bonus": False}
+
+    def weekly_ids(self) -> list[str]:
+        import random as _r
+        ids = sorted(WEEKLY)
+        return _r.Random(week_key()).sample(ids, 3)
+
+    def weekly_list(self) -> dict:
+        self.roll_week()
+        c = self.weekly["c"]
+        items = []
+        for wid in self.weekly_ids():
+            t = WEEKLY[wid]
+            prog = min(t["goal"], c.get(t["counter"], 0) if t["counter"] != "streak" else c.get("best_streak", 0))
+            items.append({"id": wid, "title": t["title"], "goal": t["goal"], "progress": prog, "coins": t["coins"],
+                          "done": prog >= t["goal"], "claimed": wid in self.weekly["claimed"]})
+        all_claimed = all(i["claimed"] for i in items)
+        return {"week": self.weekly["week"], "items": items, "bonusGems": WEEKLY_BONUS_GEMS,
+                "bonusReady": all_claimed and not self.weekly["bonus"], "bonusTaken": self.weekly["bonus"]}
+
+    def claim_weekly(self, wid: str) -> tuple[bool, str]:
+        data = self.weekly_list()
+        if wid == "bonus":
+            if not data["bonusReady"]:
+                return False, "Спершу виконай усі три виклики тижня."
+            self.weekly["bonus"] = True
+            self.gems += WEEKLY_BONUS_GEMS
+            return True, f"+{WEEKLY_BONUS_GEMS} 💎 за всі виклики тижня!"
+        it = next((i for i in data["items"] if i["id"] == wid), None)
+        if not it or not it["done"]:
+            return False, "Виклик ще не виконано."
+        if it["claimed"]:
+            return False, "Нагороду вже забрано."
+        self.weekly["claimed"].append(wid)
+        self.coins += it["coins"]
+        self.xp += it["coins"]
+        return True, f"+{it['coins']} монет за «{it['title']}»"
+
+    def on_weekly(self, gf: int, ga: int, conceded_first: bool, cup: bool) -> None:
+        self.roll_week()
+        c = self.weekly["c"]
+        inc = lambda k, n=1: c.__setitem__(k, c.get(k, 0) + n)
+        inc("matches")
+        inc("goals", gf)
+        if gf > ga:
+            inc("wins")
+            if cup:
+                inc("cupwins")
+        if ga == 0:
+            inc("clean")
+        if gf - ga >= 3:
+            inc("rout")
+        if conceded_first and gf >= ga:
+            inc("comeback")
+        c["streak"] = c.get("streak", 0) + 1 if gf >= ga else 0
+        c["best_streak"] = max(c.get("best_streak", 0), c["streak"])
 
     # ---------- game hooks
     def on_match(self, gf: int, ga: int) -> int:
