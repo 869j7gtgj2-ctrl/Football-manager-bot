@@ -45,9 +45,24 @@ async def test_full_flow(tmp_path):
         assert prof["slots"][0]["career"]["club"]["name"] == "Шахтар"
         team = (await (await c.get("/api/team", headers=h)).json())["data"]
         assert sum(len(g["players"]) for g in team["groups"]) == team["count"]
-        for _ in range(3):
-            res = (await (await c.post("/api/match/play", json={}, headers=h)).json())["data"]
+        for _ in range(2):
+            res = (await (await c.post("/api/match/play", json={"fast": True}, headers=h)).json())["data"]
             assert "hg" in res and res["xp"] > 0
+        # live match: first half, half-time decisions, second half
+        ht = (await (await c.post("/api/match/play", json={}, headers=h)).json())["data"]
+        assert ht["half"] and ht["minute"] == 45 and len(ht["lineup"]) == 11 and ht["bench"]
+        assert all(e["min"] <= 45 for e in ht["events"])
+        sub = [[ht["lineup"][-1]["id"], ht["bench"][0]["id"]]]
+        res = (await (await c.post("/api/match/second", json={"talk": "fire", "style": "attacking", "subs": sub},
+                                   headers=h)).json())["data"]
+        assert "hg" in res and res["xp"] > 0 and res["press"]
+        assert any(e["type"] == "sub" and e["in"] == sub[0][1] for e in res["events"])
+        j = await (await c.post("/api/press", json={"answer": res["press"]["answers"][0]["id"]}, headers=h)).json()
+        assert j["ok"] and j["data"]["press"] is None
+        m = (await (await c.get("/api/match", headers=h)).json())["data"]
+        assert m["predict"]["home"] + m["predict"]["draw"] + m["predict"]["away"] == 100
+        rec = (await (await c.get("/api/records", headers=h)).json())["data"]
+        assert rec["matches"] == 3
         for path in ("/api/match", "/api/table?league=3", "/api/market?f=FW", "/api/club", "/api/market?f=FA&q=a"):
             j = await (await c.get(path, headers=h)).json()
             assert j["ok"], path
@@ -78,7 +93,7 @@ async def test_season_report_sent_to_chat(tmp_path):
         club = next(x for l in draft["leagues"] for x in l["clubs"] if x["name"] == "Полтава")
         await c.post("/api/career/create", json={"slot": 0, "club_id": club["id"]}, headers=h)
         while True:
-            j = await (await c.post("/api/match/play", json={}, headers=h)).json()
+            j = await (await c.post("/api/match/play", json={"fast": True}, headers=h)).json()
             if not j["ok"] or j["data"]["seasonOver"]:
                 break
         j = await (await c.post("/api/season/end", json={}, headers=h)).json()

@@ -556,13 +556,14 @@ function matchTab() {
   if (m.draw && !S.drawShown) { S.drawShown = true; setTimeout(() => showDraw(m.draw), 50); }
   const compHead = m.comp ? `<div class="comp-badge ${m.comp.key}">${m.comp.icon} ${esc(m.comp.name)} · ${esc(m.comp.label)}</div>${m.comp.first ? `<div class="muted" style="font-size:12px;font-weight:700;margin-top:6px">Перший матч: ${esc(m.comp.first.home)} ${m.comp.first.hg}:${m.comp.first.ag} ${esc(m.comp.first.away)}</div>` : ''}`
     : `<div class="muted" style="font-weight:800;letter-spacing:.14em;font-size:12px">ТУР ${m.round} / ${m.rounds}</div>`;
-  let html = `<div class="card glow vs m16 ${m.comp ? 'comp-' + m.comp.key : ''}" style="margin-top:16px">${compHead}
+  let html = (m.press ? pressHTML(m.press) : '') + (m.dilemmas || []).map(dilemmaHTML).join('');
+  html += `<div class="card glow vs m16 ${m.comp ? 'comp-' + m.comp.key : ''}" style="margin-top:16px">${compHead}
     <div class="teams" style="margin-top:14px"><div class="t">${crest(h, 74)}<span>${esc(h.name)}</span><span class="dim" style="font-size:12px">${h.pos ? h.pos + ' місце' : esc(h.leagueShort)}</span>${formHTML(h.form)}</div>
     <div class="h" style="font-size:22px;color:var(--dim)">VS</div>
     <div class="t">${crest(a, 74)}<span>${esc(a.name)}</span><span class="dim" style="font-size:12px">${a.pos ? a.pos + ' місце' : esc(a.leagueShort)}</span>${formHTML(a.form)}</div></div>
     <div class="cmp" style="margin-top:16px"><b>${h.rating}</b><div class="bars"><i style="width:${h.rating / tot * 100}%"></i><i style="flex:1"></i></div><b>${a.rating}</b></div>
-    <div class="muted" style="font-size:12px;font-weight:700">Рейтинг стартових складів</div>
-    <button class="btn tap" style="margin-top:18px" onclick="playMatch()">${IC.play.replace('<svg', '<svg width="20" height="20"')} Грати матч</button>
+    <div class="muted" style="font-size:12px;font-weight:700">Рейтинг стартових складів</div>${predictHTML(m)}
+    <button class="btn tap" style="margin-top:18px" onclick="playMatch()">${IC.play.replace('<svg', '<svg width="20" height="20"')} ${m.pending ? 'Продовжити матч (перерва)' : 'Грати матч'}</button>
     <button class="btn ghost small tap" style="width:100%;margin-top:10px" onclick="playMatch(true)">⏩ Одразу результат</button></div>`;
   if (m.last) html += `<div class="card m16 row" style="padding:12px 16px;margin-top:12px;justify-content:center;gap:12px"><span class="muted" style="font-weight:800;font-size:12px">МИНУЛИЙ:</span>
     ${crest(m.last.home, 28)}<b class="big-num">${m.last.hg}:${m.last.ag}</b>${crest(m.last.away, 28)}</div>`;
@@ -588,14 +589,15 @@ function pitchHTML(lineup, formation) {
 async function playMatch(fast) {
   haptic('medium');
   let res;
-  try { res = (await api('/api/match/play', {})).data; } catch (e) { toast(e.message, 'bad'); return; }
-  S.live = { res, minute: fast ? 90 : 0, shown: fast ? res.events.length : 0, done: !!fast, speed: 1 };
+  try { res = (await api('/api/match/play', fast ? { fast: true } : {})).data; } catch (e) { toast(e.message, 'bad'); return; }
+  S.live = { res, minute: fast ? 90 : 0, shown: fast ? res.events.length : 0, done: false, speed: 1, half: !!res.half, ht: null };
   draw();
   if (!fast) await runLive(); else finishLive();
 }
 async function runLive() {
   const L = S.live;
-  while (L.minute < 90 && S.live === L) {
+  const stop = () => L.half ? 45 : 90;
+  while (L.minute < stop() && S.live === L) {
     await sleep(L.speed > 1 ? 40 : 125);
     L.minute++;
     const evs = L.res.events.filter(e => e.min <= L.minute);
@@ -603,18 +605,98 @@ async function runLive() {
       const fresh = evs.slice(L.shown); L.shown = evs.length;
       if (fresh.some(e => e.type === 'goal')) { const g = fresh.find(e => e.type === 'goal'); const mine = (g.side === 0) === L.res.isHome; haptic(mine ? 'success' : 'warning'); if (mine) confetti(70); }
     }
-    if (L.minute === 45 && L.speed === 1) await sleep(700);
     updateLive();
   }
+  if (S.live !== L) return;
+  if (L.half) return halfTime();
   finishLive();
 }
+function skipLive() { const L = S.live; if (!L) return; if (L.half) { L.minute = 45; L.shown = L.res.events.length; halfTime(); } else finishLive(); }
+function halfTime() {
+  const L = S.live; L.minute = 45; haptic('medium');
+  L.ht = L.ht || { talk: '', style: L.res.style, subs: [], out: null };
+  S.keepScroll = false; draw();
+}
+function htPick(kind, v) {
+  const H = S.live.ht; haptic();
+  if (kind === 'talk') H.talk = H.talk === v ? '' : v;
+  if (kind === 'style') H.style = v;
+  if (kind === 'out') H.out = H.out === v ? null : v;
+  if (kind === 'in' && H.out != null) {
+    if (H.subs.length >= S.live.res.subsLeft) { toast('Ліміт замін вичерпано', 'bad'); return; }
+    H.subs.push([H.out, v]); H.out = null;
+  }
+  if (kind === 'undo') H.subs = H.subs.filter((_, i) => i !== v);
+  S.keepScroll = true; draw();
+}
+async function secondHalf() {
+  const L = S.live, H = L.ht;
+  let res;
+  try { res = (await api('/api/match/second', { talk: H.talk, style: H.style, subs: H.subs })).data; } catch (e) { toast(e.message, 'bad'); return; }
+  haptic('heavy');
+  L.res = res; L.half = false; L.ht = null; L.shown = res.events.filter(e => e.min <= 45).length;
+  S.keepScroll = false; draw();
+  await runLive();
+}
+function halfTimeHTML() {
+  const L = S.live, r = L.res, H = L.ht;
+  const used = new Set(H.subs.flat());
+  const myG = r.isHome ? r.hg : r.ag, opG = r.isHome ? r.ag : r.hg;
+  const mood = myG > opG ? 'Ведемо в рахунку' : myG < opG ? 'Програємо, треба щось міняти' : 'Нічия на перерві';
+  const nm = n => esc(n.split(' ').slice(-1)[0]);
+  return `<div class="ht card glow m16"><div class="ht-head"><span>⏸ ПЕРЕРВА</span><b>${mood}</b></div>
+    <div class="ht-stats">${[['Володіння', r.possession[0] + '%', r.possession[1] + '%'], ['Удари', r.shots[0], r.shots[1]], ['xG', r.xg[0], r.xg[1]]].map(([n, a, b]) => `<div><b>${a}</b><span>${n}</span><b>${b}</b></div>`).join('')}</div>
+    <div class="ht-t">🗣 Промова в роздягальні</div>
+    <div class="ht-talks">${r.talks.map(t => `<button class="ht-talk ${H.talk === t.id ? 'on' : ''}" onclick="htPick('talk','${t.id}')"><span>${t.icon}</span><b>${esc(t.name)}</b><small>${esc(t.hint)}</small></button>`).join('')}</div>
+    <div class="ht-t">🎯 Стиль на другий тайм</div>
+    <div class="chips" style="padding:0">${Object.entries(r.styles).map(([k, v]) => `<button class="chip ${H.style === k ? 'on' : ''}" onclick="htPick('style','${k}')">${esc(v)}</button>`).join('')}</div>
+    <div class="ht-t">🔄 Заміни <small>${H.subs.length}/${r.subsLeft}</small></div>
+    ${H.subs.length ? `<div class="ht-subs">${H.subs.map(([o, i], k) => { const po = r.lineup.find(x => x.id === o), pi = r.bench.find(x => x.id === i); return `<div class="ht-sub"><span style="color:var(--green)">⬆ ${nm(pi.name)}</span><span style="color:var(--red)">⬇ ${nm(po.name)}</span><button onclick="htPick('undo',${k})">✕</button></div>`; }).join('')}</div>` : ''}
+    <div class="muted" style="font-size:12px;font-weight:700;margin:4px 0 8px">${H.out == null ? 'Обери, кого замінити' : 'Тепер обери, хто виходить на поле'}</div>
+    <div class="ht-grid">${r.lineup.filter(p => !used.has(p.id)).map(p => `<button class="ht-p ${H.out === p.id ? 'sel' : ''}" onclick="htPick('out',${p.id})"><i>${esc(p.slot)}</i><b>${nm(p.name)}</b><span class="${p.fitness < 60 ? 'low' : ''}">⚡${p.fitness}</span></button>`).join('')}</div>
+    ${H.out != null ? `<div class="ht-t" style="margin-top:12px">Лава запасних</div><div class="ht-grid">${r.bench.filter(p => !used.has(p.id)).map(p => `<button class="ht-p in" onclick="htPick('in',${p.id})"><i>${esc(p.role)}</i><b>${nm(p.name)}</b><span>${p.skill}</span></button>`).join('')}</div>` : ''}
+    <button class="btn gold tap" style="margin-top:16px" onclick="secondHalf()">▶ Другий тайм</button></div>`;
+}
 function finishLive() {
-  const L = S.live; if (!L) return;
+  const L = S.live; if (!L || L.done) return;
+  if (L.half) return skipLive();
   L.minute = 90; L.shown = L.res.events.length; L.done = true;
   const r = L.res; const my = r.isHome ? r.hg : r.ag, op = r.isHome ? r.ag : r.hg;
   if (my > op) { confetti(180); haptic('success'); toast(`Перемога! +${r.xp} XP · +${r.coins || 0} 🪙`, 'coins'); }
   else if (my === op) toast(`Нічия. +${r.xp} XP · +${r.coins || 0} 🪙`); else { haptic('error'); toast(`Поразка. +${r.xp} XP · +${r.coins || 0} 🪙`, 'bad'); }
+  (r.records || []).forEach((t, i) => setTimeout(() => { toast('🏛 ' + t, 'coins'); confetti(60); }, 1500 + i * 1200));
   updateLive();
+}
+async function pressAnswer(id) {
+  haptic('medium');
+  const j = await call('/api/press', { answer: id });
+  if (S.live && S.live.res) S.live.res.press = null;
+  if (S.match) S.match.press = null;
+  S.keepScroll = true; draw();
+}
+function pressHTML(p) {
+  return `<div class="card m16 press"><div class="press-h"><span class="mic">🎙</span><div><div class="muted" style="font-size:11px;font-weight:800;letter-spacing:.12em">ПРЕСКОНФЕРЕНЦІЯ</div><b>${esc(p.q)}</b></div></div>
+    ${p.answers.map(a => `<button class="press-a tap" onclick="pressAnswer('${a.id}')">“${esc(a.text)}”</button>`).join('')}</div>`;
+}
+async function dilemmaAnswer(id, opt) {
+  haptic('medium');
+  const j = await api('/api/dilemma', { id, option: opt }).catch(e => { toast(e.message, 'bad'); });
+  if (!j) return;
+  sheet(`<div style="text-align:center"><div style="font-size:48px">📋</div><p style="font-weight:700;font-size:16px">${esc(j.message)}</p><button class="btn tap" onclick="closeSheet()">Зрозуміло</button></div>`);
+  if (S.match) S.match.dilemmas = j.data.dilemmas;
+  S.keepScroll = true; draw();
+}
+function dilemmaHTML(d) {
+  const ic = { playtime: '😠', raise: '💼', conflict: '⚡', youth: '🌱' }[d.kind] || '📋';
+  return `<div class="card m16 dilemma"><div class="row" style="gap:12px"><span class="dl-ic">${ic}</span><div class="grow"><div class="muted" style="font-size:11px;font-weight:800;letter-spacing:.12em">СИТУАЦІЯ В КОМАНДІ</div><b style="font-size:16px">${esc(d.title)}</b></div></div>
+    <p class="muted" style="font-weight:600;margin:10px 0 12px">${esc(d.text)}</p>
+    ${d.options.map(([k, t]) => `<button class="press-a tap" onclick="dilemmaAnswer(${d.id},'${k}')">${esc(t)}</button>`).join('')}</div>`;
+}
+function predictHTML(m) {
+  const p = m.predict; if (!p) return '';
+  return `<div class="pred"><div class="pred-bar"><i class="h" style="width:${p.home}%"></i><i class="d" style="width:${p.draw}%"></i><i class="a" style="width:${p.away}%"></i></div>
+    <div class="pred-l"><span><b>${p.home}%</b> П1</span><span><b>${p.draw}%</b> Нічия</span><span>П2 <b>${p.away}%</b></span></div>
+    <div class="muted" style="font-size:12px;font-weight:700;margin-top:6px">🔮 Прогноз аналітиків · xG ${p.xg[0]} : ${p.xg[1]} · ймовірний рахунок ${p.score[0]}:${p.score[1]}</div></div>`;
 }
 function liveScore(L) {
   let hg = 0, ag = 0;
@@ -639,12 +721,14 @@ function liveView() {
   const cl = r.comp ? `<div class="comp-badge ${r.comp.key}" style="margin-bottom:12px">${r.comp.icon} ${esc(r.comp.name)} · ${esc(r.comp.label)}</div>` : '';
   const extra = r.comp && L.done ? [r.comp.agg ? `Загальний рахунок ${r.comp.agg[0]}:${r.comp.agg[1]}` : '', r.comp.pens ? `Пенальті ${r.comp.pens[0]}:${r.comp.pens[1]}` : '', r.comp.through === true ? '✅ Проходимо далі!' : r.comp.through === false ? '❌ Виліт з турніру' : ''].filter(Boolean).join(' · ') : '';
   let html = `<div class="card glow vs m16 ${r.comp ? 'comp-' + r.comp.key : ''}" style="margin-top:16px">${cl}<div class="teams"><div class="t">${crest(r.home, 64)}<span>${esc(r.home.name)}</span></div>
-    <div><div class="score" id="score">${hg}:${ag}</div><div class="clock" id="clock">${L.done ? 'Фінал' : `<i></i>${L.minute}'`}</div></div>
+    <div><div class="score" id="score">${hg}:${ag}</div><div class="clock" id="clock">${L.done ? 'Фінал' : L.ht ? 'Перерва' : `<i></i>${L.minute}'`}</div></div>
     <div class="t">${crest(r.away, 64)}<span>${esc(r.away.name)}</span></div></div>
     ${extra ? `<div class="comp-res">${extra}</div>` : ''}
     <div class="bar green" style="margin-top:16px"><i id="lbar" style="width:${L.minute / 90 * 100}%"></i></div>
-    ${!L.done ? `<div class="row" style="justify-content:center;margin-top:12px;gap:8px"><button class="chip spd ${L.speed === 1 ? 'on' : ''}" data-s="1" onclick="S.live.speed=1;updateLive()">×1</button><button class="chip spd ${L.speed > 1 ? 'on' : ''}" data-s="3" onclick="S.live.speed=3;updateLive()">×3</button><button class="chip" onclick="finishLive()">⏭ Пропустити</button></div>` : ''}</div>`;
+    ${!L.done ? `<div class="row" style="justify-content:center;margin-top:12px;gap:8px"><button class="chip spd ${L.speed === 1 ? 'on' : ''}" data-s="1" onclick="S.live.speed=1;updateLive()">×1</button><button class="chip spd ${L.speed > 1 ? 'on' : ''}" data-s="3" onclick="S.live.speed=3;updateLive()">×3</button><button class="chip" onclick="skipLive()">⏭ ${L.half ? 'До перерви' : 'Пропустити'}</button></div>` : ''}</div>`;
+  if (L.ht) return html + halfTimeHTML() + `<div class="feed" data-n="0">${evs.map(e => evHTML(e, r)).join('')}</div>`;
   if (L.done) {
+    if (r.press) html += pressHTML(r.press);
     html += `<div class="card m16" style="padding:16px;margin-top:12px">${[['Володіння', r.possession + '%', (100 - r.possession) + '%', r.possession, 100 - r.possession],
       ['Удари', r.shots[0], r.shots[1], r.shots[0], r.shots[1]], ['У площину', r.onTarget[0], r.onTarget[1], r.onTarget[0], r.onTarget[1]],
       ['xG', r.xg[0], r.xg[1], r.xg[0], r.xg[1]]].map(([n, a, b, x, y]) => `<div class="muted" style="text-align:center;font-size:12px;font-weight:800;margin-top:6px">${n}</div>
@@ -660,7 +744,7 @@ function liveView() {
 function updateLive() {
   if (!(S.view === 'career' && S.tab === 'match')) return;
   const L = S.live;
-  if (!L || L.done || !$('#feed')) { S.keepScroll = true; draw(); return; }
+  if (!L || L.done || L.ht || !$('#feed')) { S.keepScroll = true; draw(); return; }
   const [hg, ag] = liveScore(L);
   $('#score').textContent = `${hg}:${ag}`;
   $('#clock').innerHTML = `<i></i>${L.minute}'`;
@@ -675,7 +759,7 @@ function updateLive() {
   }
   document.querySelectorAll('.spd').forEach(b => b.classList.toggle('on', (+b.dataset.s > 1) === (L.speed > 1)));
 }
-async function nextMatch() { S.live = null; S.drawShown = false; loading(); S.team = (await call('/api/team')).data; S.match = (await call('/api/match')).data; draw(); }
+async function nextMatch() { if (S.live && S.live.res.press) { toast('Спершу дай відповідь журналістам 🎙', 'bad'); return; } S.live = null; S.drawShown = false; loading(); S.team = (await call('/api/team')).data; S.match = (await call('/api/match')).data; draw(); }
 async function endSeason() {
   loading();
   const s = (await call('/api/season/end', {})).data;
@@ -686,6 +770,7 @@ async function endSeason() {
     <div class="h" style="font-size:24px;font-weight:800">Сезон ${s.season} завершено</div>
     <p class="muted" style="font-weight:700">${s.position}-е місце в ${esc(s.league)} · ціль була топ-${s.target}</p></div>
     <div class="kv"><div><b style="color:var(--green)">${money(s.prize)}</b><span>Призові</span></div><div><b style="color:var(--gold)">+${s.xp}</b><span>Досвід</span></div><div><b>${s.confidence}%</b><span>Довіра</span></div></div>
+    ${s.awards && s.awards.items.length ? `<div class="ht-t">🏅 Нагороди сезону</div><div class="awards">${s.awards.items.map(a => `<div class="aw ${a.mine ? 'mine' : ''}"><span>${a.icon}</span><div class="grow"><small>${esc(a.title)}</small><b>${esc(a.name)}</b><em>${esc(a.club)} · ${esc(a.value)}</em></div></div>`).join('')}</div>` : ''}
     ${s.champions.map(c => `<div class="row" style="padding:6px 0"><span class="ptag">${esc(c.league)}</span><b>👑 ${esc(c.club)}</b></div>`).join('')}
     ${s.promoted.length ? `<p style="font-weight:700">🔺 ${s.promoted.map(esc).join(', ')}<br>🔻 ${s.relegated.map(esc).join(', ')}</p>` : ''}
     ${s.youth.length ? `<p style="font-weight:700">🎓 Вихованці: ${s.youth.map(esc).join(', ')}</p>` : ''}
@@ -812,6 +897,20 @@ function showDraw(d) {
 async function closeDraw(key) { const el = $('#draw'); if (el) el.remove(); try { await api('/api/cup/seen', { key }); } catch (e) {} }
 
 /* ---------------- CLUB */
+async function openRecords() {
+  haptic();
+  const r = (await call('/api/records')).data;
+  const top = (arr, unit) => arr.length ? arr.map((x, i) => `<div class="item"><span class="rk ${i === 0 ? 'g' : ''}">${i + 1}</span><b class="grow">${esc(x.name)}</b><b class="big-num">${x.n}</b><span class="dim" style="font-size:12px">${unit}</span></div>`).join('') : '<div class="empty">Ще немає даних</div>';
+  const res = x => x ? `<b class="big-num">${x.gf}:${x.ga}</b><div class="muted" style="font-size:12px;font-weight:700">${esc(x.opp)} · ${esc(x.season)}</div>` : '<span class="dim">—</span>';
+  sheet(`<div class="row" style="gap:14px">${crest(r.club, 54)}<div><div class="muted" style="font-size:11px;font-weight:800;letter-spacing:.14em">ЗАЛ СЛАВИ</div><div class="h" style="font-size:22px;font-weight:800">${esc(r.club.name)}</div></div></div>
+    <div class="kv"><div><b>${r.matches}</b><span>Матчів</span></div><div><b style="color:var(--green)">${r.wins}</b><span>Перемог</span></div><div><b>${r.draws}</b><span>Нічиїх</span></div>
+    <div><b style="color:var(--red)">${r.losses}</b><span>Поразок</span></div><div><b>${r.gf}:${r.ga}</b><span>Голи</span></div><div><b style="color:var(--goldL)">${r.bestStreak}</b><span>Серія без поразок</span></div></div>
+    <div class="grid2" style="margin-top:12px"><div class="opt">🔥 Найбільша перемога${res(r.bigWin)}</div><div class="opt">💀 Найбільша поразка${res(r.bigLoss)}</div></div>
+    <div class="ht-t">⚽ Найкращі бомбардири</div><div class="list">${top(r.scorers, 'гол.')}</div>
+    <div class="ht-t">👕 Найбільше матчів</div><div class="list">${top(r.apps, 'матч.')}</div>
+    ${r.awards.map(a => `<div class="ht-t">🏅 Нагороди ${esc(a.season)}</div><div class="awards">${a.items.map(x => `<div class="aw ${x.mine ? 'mine' : ''}"><span>${x.icon}</span><div class="grow"><small>${esc(x.title)}</small><b>${esc(x.name)}</b><em>${esc(x.club)} · ${esc(x.value)}</em></div></div>`).join('')}</div>`).join('')}
+    ${r.trophies.length ? `<div class="ht-t">🏆 Трофеї</div>${r.trophies.map(t => `<div class="item"><b>${esc(t)}</b></div>`).join('')}` : ''}`);
+}
 function clubTab() {
   const c = S.club, f = c.finances;
   const up = { stadium: ['🏟', 'Стадіон +2 500 місць'], training: ['🏋️', `Тренувальна база · ${c.training}/5`], academy: ['🎓', `Академія · ${c.academy}/5`] };
@@ -823,6 +922,7 @@ function clubTab() {
     <div class="stepper"><button onclick="clubAct({ticket:-1})">−</button><b class="big-num">€${c.ticket}</b><button onclick="clubAct({ticket:1})">+</button></div></div>
     <div class="section-title">Інфраструктура</div><div class="card m16 list">${Object.entries(up).map(([k, [i, l]]) => `<div class="item"><span style="font-size:26px">${i}</span><b class="grow">${l}</b>${c.upgrades[k] ? `<button class="btn small violet tap" onclick="clubAct({upgrade:'${k}'})">${money(c.upgrades[k])}</button>` : '<span class="chip">MAX</span>'}</div>`).join('')}</div>
     <div class="section-title">Правління</div><div class="card m16" style="padding:16px"><div class="row between"><b>Ціль: топ-${c.target}</b><b>${c.confidence}%</b></div><div class="bar ${c.confidence > 60 ? 'green' : ''}" style="margin-top:10px"><i style="width:${c.confidence}%"></i></div></div>`;
+  html += `<div class="pad" style="margin-top:14px"><button class="btn ghost tap" style="width:100%" onclick="openRecords()">🏛 Зал слави: рекорди і нагороди</button></div>`;
   if (c.trophies.length) html += `<div class="section-title">Трофеї</div><div class="card m16 list">${c.trophies.map(t => `<div class="item"><b>${esc(t)}</b></div>`).join('')}</div>`;
   if (c.history.length) html += `<div class="section-title">Історія</div><div class="card m16 list">${c.history.map(h => `<div class="item"><span class="ptag">${h.season}</span><b class="grow">${esc(h.clubName)} · ${esc(h.league)}</b><b>${h.pos} місце</b></div>`).join('')}</div>`;
   html += `<div class="section-title">Новини</div><div class="card m16 list">${c.news.map(n => `<div class="item" style="font-weight:600;font-size:14px">${esc(n)}</div>`).join('') || '<div class="empty">Тиша</div>'}</div>`;

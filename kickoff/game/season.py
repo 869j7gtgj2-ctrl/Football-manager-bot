@@ -238,14 +238,14 @@ def generate_offers(world: World, rng: random.Random) -> None:
 
 
 # ---------------------------------------------------------------- round
-def play_round(world: World, rng: random.Random | None = None) -> dict | None:
+def play_round(world: World, rng: random.Random | None = None, user_res: dict | None = None) -> dict | None:
     rng = rng or random.Random()
     if world.round >= len(world.fixtures.get(world.club.division, [])):
         return None
     r = world.round
     total = len(world.fixtures[world.club.division])
     unavailable_start = {p.id: (p.injured, p.suspended) for p in world.players.values() if p.injured or p.suspended}
-    user_res = None
+    injected, user_res = user_res, None
     played: set[int] = set()
     for div, rounds in world.fixtures.items():
         n = len(rounds)
@@ -253,7 +253,10 @@ def play_round(world: World, rng: random.Random | None = None) -> dict | None:
         for h, a, rr in [(h, a, k) for k in range(lo, hi) for h, a in rounds[k]]:
             home, away = world.clubs[h], world.clubs[a]
             detailed = world.club_id in (h, a)
-            res = simulate(world, home, away, rng, detailed=detailed)
+            if injected and (injected["home"], injected["away"]) == (h, a):
+                res = injected
+            else:
+                res = simulate(world, home, away, rng, detailed=detailed)
             apply_result(world, res, rng)
             played.update(int(k) for k in res["minutes"])
             world.results.append(MatchResult(round=rr, division=div, home=h, away=a, hg=res["hg"], ag=res["ag"]))
@@ -314,7 +317,18 @@ def play_round(world: World, rng: random.Random | None = None) -> dict | None:
     return user_res
 
 
-def play_next(world: World, rng: random.Random | None = None) -> dict | None:
+def user_fixture(world: World) -> dict | None:
+    """The user's next match on the calendar: {"home", "away", "comp"} (comp is None for the league)."""
+    from . import cups
+    cups.ensure(world)
+    ev = cups.user_next(world)
+    if ev:
+        return {"home": ev["home"], "away": ev["away"], "comp": ev["key"]}
+    nf = next_fixture(world)
+    return {"home": nf[0], "away": nf[1], "comp": None} if nf else None
+
+
+def play_next(world: World, rng: random.Random | None = None, user_res: dict | None = None) -> dict | None:
     """Next step of the calendar: due cup/European stages first, then the league round."""
     rng = rng or random.Random()
     from . import cups
@@ -323,11 +337,11 @@ def play_next(world: World, rng: random.Random | None = None) -> dict | None:
         pending = cups.due(world)
         if not pending:
             break
-        res = cups.play_stage(world, pending[0], rng)
+        res = cups.play_stage(world, pending[0], rng, user_res)
         if res:
             world.last_match = _serialisable(res)
             return res
-    return play_round(world, rng)
+    return play_round(world, rng, user_res)
 
 
 def _serialisable(res: dict) -> dict:

@@ -235,18 +235,21 @@ def _penalties(rng: random.Random) -> tuple[int, int]:
     return (a, b) if rng.random() < .5 else (b, a)
 
 
-def play_stage(w, key: str, rng: random.Random) -> dict | None:
+def play_stage(w, key: str, rng: random.Random, user_res: dict | None = None) -> dict | None:
     comp = w.cups[key]
     i = next_stage(comp)
     st = comp["stages"][i]
-    user_res = None
+    injected, user_res = user_res, None
     money = LEAGUES[w.club.division]["money"]
     for t in st["ties"]:
         if t["b"] is None:
             continue
         h, a = (t["b"], t["a"]) if st["type"] == "leg2" else (t["a"], t["b"])
         mine = w.club_id in (h, a)
-        res = simulate(w, w.clubs[h], w.clubs[a], rng, detailed=mine)
+        if injected and (injected["home"], injected["away"]) == (h, a):
+            res = injected
+        else:
+            res = simulate(w, w.clubs[h], w.clubs[a], rng, detailed=mine)
         apply_result(w, res, rng)
         from .season import gate_income  # local import: season imports this module
         att, gate = gate_income(w, w.clubs[h], rng)

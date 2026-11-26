@@ -52,16 +52,58 @@ class Service:
         self.st.save_profile(prof)
         return w
 
-    def play(self, w, prof: Profile, rng: random.Random | None = None) -> dict | None:
+    def first_half(self, w, rng: random.Random | None = None):
+        """Start the user's next match live: simulate to half-time and park it in w.pending."""
+        from .game.match import Sim
+        from .game.season import user_fixture
+        if w.pending:
+            return Sim.restore(w, w.pending["state"], rng or random.Random())
+        fx = user_fixture(w)
+        if not fx or season_over(w):
+            return None
+        sim = Sim(w, w.clubs[fx["home"]], w.clubs[fx["away"]], rng or random.Random(), detailed=True)
+        sim.run(45, auto_subs_for=(0, 1))
+        w.pending = {"state": sim.state(), "comp": fx["comp"]}
+        return sim
+
+    def second_half(self, w, prof: Profile, talk: str = "", style: str = "", subs: list | None = None,
+                    rng: random.Random | None = None) -> dict | None:
+        from .game.match import Sim
+        from .game.models import STYLES
+        rng = rng or random.Random()
+        if not w.pending:
+            return None
+        sim = Sim.restore(w, w.pending["state"], rng)
+        side = 0 if sim.home.id == w.club_id else 1
+        if style in STYLES:
+            w.club.style = style
+        if talk:
+            sim.team_talk(side, talk)
+        for out_id, in_id in (subs or [])[:5]:
+            sim.substitute_manual(side, int(out_id), int(in_id))
+        sim.run(90, auto_subs_for=(1 - side,) if subs else (0, 1))
+        res = sim.finish()
+        w.pending = {}
+        return self.play(w, prof, rng, user_res=res)
+
+    def play(self, w, prof: Profile, rng: random.Random | None = None, user_res: dict | None = None) -> dict | None:
         if season_over(w):
             return None
         from .game.season import play_next
-        res = play_next(w, rng or random.Random())
+        if w.pending and user_res is None:  # a paused live match: finish it without changes
+            return self.second_half(w, prof, rng=rng)
+        res = play_next(w, rng or random.Random(), user_res)
         if res:
             home = res["home"] == w.club_id
             gf, ga = (res["hg"], res["ag"]) if home else (res["ag"], res["hg"])
             res["xp"] = prof.on_match(gf, ga)
             res["coins"] = prof.last_coins
+            if res.get("home") in (w.club_id,) or res.get("away") == w.club_id:
+                from .game import events as ev
+                w.records.pop("_boost", None)
+                res["records"] = ev.update_records(w, res)
+                ev.open_press(w, res)
+                ev.maybe_dilemma(w, rng or random.Random())
         return res
 
     def finish_season(self, w, prof: Profile) -> dict:
@@ -74,6 +116,8 @@ class Service:
         star = max((p for p in squad if p.apps >= 5), key=lambda p: p.avg_rating, default=None)
         best = (star.name, star.avg_rating) if star else None
         season = w.season
+        from .game.events import season_awards
+        awards = season_awards(w)
         summary = end_season(w, random.Random())
         summary["xp"] = prof.on_season(summary, club.id)
         summary["cups_won"] = [c["name"] for c in (summary.get("cups") or {}).values() if c.get("winner") == club.id]
@@ -82,7 +126,7 @@ class Service:
             "pts": row["pts"], "w": row["w"], "d": row["d"], "l": row["l"], "gf": row["gf"], "ga": row["ga"],
             "scorer": scorer, "best": best,
             "promoted_me": club.id in summary.get("promoted", []), "relegated_me": club.id in summary.get("relegated", []),
-            "confidence": w.confidence, "fired": w.fired, "new_target": w.board_target,
+            "awards": awards, "confidence": w.confidence, "fired": w.fired, "new_target": w.board_target,
         })
         return summary
 

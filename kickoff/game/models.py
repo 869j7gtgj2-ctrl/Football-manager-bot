@@ -165,7 +165,12 @@ class World:
     cups: dict = field(default_factory=dict)  # "cup" / "ucl" -> competition state (see game/cups.py)
     euro_next: dict = field(default_factory=dict)
     negotiations: dict = field(default_factory=dict)  # player id (str) -> {"n": rounds, "counter": fee}
-    pitches: list = field(default_factory=list)  # agent proposals: {"id","pid","fee","until","note"}
+    pitches: list = field(default_factory=list)
+    pending: dict = field(default_factory=dict)  # user's match paused at half-time (match.Sim state)
+    press: dict = field(default_factory=dict)    # open post-match press conference
+    records: dict = field(default_factory=dict)  # club records hub
+    awards: list = field(default_factory=list)   # season awards history
+    dilemmas: list = field(default_factory=list)  # player situations waiting for a decision  # agent proposals: {"id","pid","fee","until","note"}
     season_finances: dict = field(default_factory=lambda: {"income": 0, "wages": 0, "transfers_in": 0, "transfers_out": 0})
 
     # ---------- helpers ----------

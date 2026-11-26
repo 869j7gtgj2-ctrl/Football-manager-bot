@@ -13,7 +13,7 @@ from urllib.parse import parse_qsl
 from aiohttp import web
 
 from ..game.leagues import LEAGUES
-from ..game.match import _auto_fill, available_pool, chemistry, formation_slots, pick_lineup, prole
+from ..game.match import TALKS, predict, _auto_fill, available_pool, chemistry, formation_slots, pick_lineup, prole
 from ..game.roles import FORMATIONS as SLOTS, familiarity
 from ..game.models import FORMATIONS, POS_NAME, SQUAD_MAX, STYLES, TRAINING
 from ..game import cups as cupsmod
@@ -375,21 +375,54 @@ def match_preview(w) -> dict:
                  ({"first": {"home": w.clubs[ev["first"]["h"]].name, "away": w.clubs[ev["first"]["a"]].name,
                              "hg": ev["first"]["hg"], "ag": ev["first"]["ag"]}} if ev.get("first") else {})) if ev else None,
         "draw": (lambda d: d if d and ev and d["key"] == ev["key"] else None)(draw_json(w)),
-        "seasonOver": False,
+        "seasonOver": False, "predict": predict(w, w.clubs[h], w.clubs[a]), "pending": bool(w.pending),
+        **life_json(w),
     }
 
 
-def match_result_json(w, res: dict) -> dict:
+def named_events(w, evs: list) -> list:
     def name(pid):
         p = w.players.get(int(pid)) if pid is not None else None
         return p.name if p else ""
     events = []
-    for e in res["events"]:
+    for e in evs:
         e2 = dict(e)
         for k in ("player", "assist", "out", "in", "gk"):
             if e.get(k) is not None:
                 e2[k + "Name"] = name(e[k])
         events.append(e2)
+    return events
+
+
+TALK_INFO = {"fire": ("🔥", "Розірвати їх!", "Шалена мотивація. Найкраще, коли програєш."),
+             "calm": ("🧘", "Спокій і контроль", "Тримати результат. Добре при перевазі."),
+             "praise": ("👏", "Похвалити", "Вселяє впевненість, якщо гра йде."),
+             "blame": ("😤", "Рознос у роздягальні", "Ризиковано: або встряхне, або зламає.")}
+
+
+def halftime_json(w, sim) -> dict:
+    side = 0 if sim.home.id == w.club_id else 1
+    t = sim.teams[side]
+    pj = lambda s, p: {"slot": s, "id": p.id, "name": p.name, "role": p.role, "skill": p.skill,
+                       "fitness": round(p.fitness)}
+    poss = round(100 * sim.poss_sum / max(1, sim.minute)) if sim.minute else 50
+    return {"half": True, "minute": sim.minute, "home": club_json(w, sim.home), "away": club_json(w, sim.away),
+            "hg": sim.teams[0].goals, "ag": sim.teams[1].goals, "isHome": side == 0,
+            "events": named_events(w, sim.events),
+            "comp": (lambda ev: {k: ev[k] for k in ("key", "name", "icon", "label")} if ev else None)(cupsmod.user_next(w)),
+            "shots": [sim.teams[0].shots, sim.teams[1].shots], "possession": [poss, 100 - poss],
+            "xg": [round(sim.teams[0].xg, 2), round(sim.teams[1].xg, 2)],
+            "lineup": [pj(s, p) for s, p in t.lineup], "bench": [pj(p.role, p) for p in t.bench],
+            "subsLeft": 5 - t.subs, "style": w.club.style, "styles": STYLES,
+            "talks": [{"id": k, "icon": v[0], "name": v[1], "hint": v[2]} for k, v in TALK_INFO.items()]}
+
+
+def life_json(w) -> dict:
+    return {"press": w.press or None, "dilemmas": w.dilemmas}
+
+
+def match_result_json(w, res: dict) -> dict:
+    events = named_events(w, res["events"])
     ratings = []
     for pid, r in res["ratings"].items():
         p = w.players.get(int(pid))
@@ -403,7 +436,17 @@ def match_result_json(w, res: dict) -> dict:
             "attendance": res.get("attendance", 0), "ratings": ratings,
             "motm": {"name": motm.name, "rating": res["ratings"].get(res["motm"])} if motm else None,
             "xp": res.get("xp", 0), "coins": res.get("coins", 0), "fired": w.fired, "seasonOver": season_over(w), "isHome": res["home"] == w.club_id,
-            "comp": res.get("comp")}
+            "comp": res.get("comp"), "records": res.get("records") or [], **life_json(w)}
+
+
+def records_json(w) -> dict:
+    r = w.records
+    top = lambda m: [{"name": k, "n": v} for k, v in sorted((m or {}).items(), key=lambda kv: -kv[1])[:5]]
+    return {"club": club_json(w, w.club), "matches": r.get("matches", 0), "wins": r.get("wins", 0),
+            "draws": r.get("draws", 0), "losses": r.get("losses", 0), "gf": r.get("gf", 0), "ga": r.get("ga", 0),
+            "bigWin": r.get("big_win"), "bigLoss": r.get("big_loss"), "streak": r.get("streak", 0),
+            "bestStreak": r.get("best_streak", 0), "scorers": top(r.get("scorers")), "apps": top(r.get("apps")),
+            "awards": w.awards, "trophies": w.trophies, "history": w.history[-10:]}
 
 
 def table_json(w, league: int) -> dict:
@@ -654,6 +697,13 @@ def create_app(svc: Service, token: str) -> web.Application:
         if w is None or w.fired:
             return fail("Немає активної кар’єри.")
         level_before = prof.rank[1]
+        b = await body(request)
+        if not b.get("fast"):
+            sim = svc.first_half(w)
+            if sim is None:
+                return fail("Сезон завершено.")
+            svc.st.save(w)
+            return ok(halftime_json(w, sim))
         res = svc.play(w, prof)
         if res is None:
             return fail("Сезон завершено.")
@@ -663,6 +713,52 @@ def create_app(svc: Service, token: str) -> web.Application:
             from ..bot.messages import level_up
             await svc.send(request["uid"], level_up(prof))
         return ok(match_result_json(w, res))
+
+    async def second_half(request):
+        w, prof = world(request)
+        if w is None or not w.pending:
+            return fail("Немає матчу на паузі.")
+        b = await body(request)
+        level_before = prof.rank[1]
+        subs = [(int(a), int(c)) for a, c in (b.get("subs") or [])][:5]
+        res = svc.second_half(w, prof, str(b.get("talk", "")), str(b.get("style", "")), subs)
+        if res is None:
+            return fail("Немає матчу на паузі.")
+        svc.st.save(w)
+        svc.st.save_profile(prof)
+        if prof.rank[1] > level_before:
+            from ..bot.messages import level_up
+            await svc.send(request["uid"], level_up(prof))
+        return ok(match_result_json(w, res))
+
+    async def press_answer(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        from ..game.events import answer_press
+        good, msg = answer_press(w, str((await body(request)).get("answer", "")))
+        if not good:
+            return fail(msg)
+        svc.st.save(w)
+        return ok(life_json(w), msg)
+
+    async def dilemma_answer(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        b = await body(request)
+        from ..game.events import resolve_dilemma
+        good, msg = resolve_dilemma(w, int(b.get("id", 0)), str(b.get("option", "")))
+        if not good:
+            return fail(msg)
+        svc.st.save(w)
+        return ok(life_json(w), msg)
+
+    async def get_records(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        return ok(records_json(w))
 
     async def season_end(request):
         w, prof = world(request)
@@ -682,6 +778,7 @@ def create_app(svc: Service, token: str) -> web.Application:
                "relegated": [w.clubs[c].name for c in s.get("relegated", [])],
                "retired": s.get("retired", []), "left": s.get("left", []),
                "youth": [w.players[i].name for i in s.get("youth", []) if i in w.players],
+               "awards": s.get("awards"),
                "champions": [{"league": LEAGUES[int(d)]["short"], "club": w.clubs[i["champion"]].name}
                              for d, i in s["divisions"].items()]}
         return ok(out)
@@ -844,6 +941,10 @@ def create_app(svc: Service, token: str) -> web.Application:
     r.add_get("/api/match", get_match)
     r.add_post("/api/match/play", play_match)
     r.add_post("/api/season/end", season_end)
+    r.add_post("/api/match/second", second_half)
+    r.add_post("/api/press", press_answer)
+    r.add_post("/api/dilemma", dilemma_answer)
+    r.add_get("/api/records", get_records)
     r.add_get("/api/table", get_table)
     r.add_get("/api/market", get_market)
     r.add_get("/api/player", get_player)
