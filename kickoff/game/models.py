@@ -170,6 +170,12 @@ class World:
     press: dict = field(default_factory=dict)    # open post-match press conference
     records: dict = field(default_factory=dict)  # club records hub
     awards: list = field(default_factory=list)   # season awards history
+    fin: dict = field(default_factory=dict)        # user's club money by category this season
+    fin_history: list = field(default_factory=list)
+    ledger: list = field(default_factory=list)     # notable operations
+    sponsor: dict = field(default_factory=dict)    # current general sponsor contract
+    sponsor_offers: list = field(default_factory=list)
+    ballon: list = field(default_factory=list)     # Golden Ball history
     staff: dict = field(default_factory=dict)  # role -> {"name","nation","level","age"}
     staff_market: dict = field(default_factory=dict)
     challenge: dict = field(default_factory=dict)  # weekly challenge progress for this career

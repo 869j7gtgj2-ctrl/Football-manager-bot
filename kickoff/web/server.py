@@ -594,6 +594,48 @@ def club_tab_json(w) -> dict:
             "manager": w.manager}
 
 
+def finance_json(w) -> dict:
+    from ..game import finance as fn, sponsors as sp
+    c = w.club
+    if not w.sponsor and not w.sponsor_offers:
+        sp.make_offers(w)
+    inc, exp = fn.totals(w)
+    wages = wage_bill(w, c.id)
+    left = max(0, w.rounds_total - w.round)
+    pending = sum(a for a, paid in zip(w.sponsor.get("parts", []), w.sponsor.get("paid", [])) if not paid) \
+        if w.sponsor and w.sponsor.get("left", 0) > 0 else 0
+    weekly = sponsor_income(c) - wages
+    forecast = c.budget + weekly * left + pending
+    status = "good" if forecast > wages * 10 and weekly >= 0 else "tight" if forecast > 0 else "critical"
+    cats = lambda d: [{"id": k, "icon": v[0], "name": v[1], "amount": w.fin.get(k, 0)} for k, v in d.items()
+                      if w.fin.get(k, 0)]
+    squad = sorted(w.squad(c.id), key=lambda p: -p.wage)
+    spon = None
+    if w.sponsor:
+        spon = {**w.sponsor, "kindName": sp.KINDS[w.sponsor["kind"]][0]}
+    return {"club": club_json(w, c), "season": season_label(w.season), "budget": c.budget, "income": inc,
+            "expense": exp, "incomeCats": sorted(cats(fn.INCOME), key=lambda x: -x["amount"]),
+            "expenseCats": sorted(cats(fn.EXPENSE), key=lambda x: -x["amount"]),
+            "ledger": [{**e, "season": season_label(e["season"])} for e in w.ledger[:20]],
+            "wagesWeekly": wages, "wagesSeason": wages * w.rounds_total, "commercialWeekly": sponsor_income(c),
+            "staffWages": sum(stf_w(w)), "roundsLeft": left, "forecast": forecast, "status": status,
+            "pendingSponsor": pending, "weekly": weekly,
+            "earners": [{"id": p.id, "name": p.name, "role": p.role, "wage": p.wage, "skill": p.skill,
+                         "contract": season_label(w.season + p.contract - 1)} for p in squad[:10]],
+            "squadCount": len(squad),
+            "history": [{"season": season_label(h["season"]),
+                         "income": sum(v for k, v in h.items() if k in fn.INCOME),
+                         "expense": sum(v for k, v in h.items() if k in fn.EXPENSE)} for h in w.fin_history],
+            "sponsor": spon, "offers": [{**o, "kindName": sp.KINDS[o["kind"]][0], "kindHint": sp.KINDS[o["kind"]][1]}
+                                        for o in w.sponsor_offers],
+            "canChange": sp.can_change(w), "parts": list(sp.PARTS)}
+
+
+def stf_w(w):
+    from ..game.staff import staff_wages
+    return [staff_wages(w)]
+
+
 # ====================================================================== app
 def create_app(svc: Service, token: str) -> web.Application:
     dev = os.getenv("DEV_AUTH") == "1"
@@ -835,6 +877,32 @@ def create_app(svc: Service, token: str) -> web.Application:
         svc.st.save(w)
         return ok(staff_json(w), msg)
 
+    async def get_finance(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        out = finance_json(w)
+        svc.st.save(w)
+        return ok(out)
+
+    async def sponsor_sign(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        from ..game import sponsors as sp
+        good, msg = sp.sign(w, str((await body(request)).get("id", "")))
+        if not good:
+            return fail(msg)
+        svc.st.save(w)
+        return ok(finance_json(w), msg)
+
+    async def get_ballon(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        return ok({"history": [{**b, "top": [{**t, "club": club_json(w, w.clubs[t["club"]]), "flag": flag(t["nation"])}
+                                             for t in b["top"]]} for b in w.ballon]})
+
     async def get_friends(request):
         return ok(friends_json(svc, request["uid"]))
 
@@ -877,7 +945,9 @@ def create_app(svc: Service, token: str) -> web.Application:
                "relegated": [w.clubs[c].name for c in s.get("relegated", [])],
                "retired": s.get("retired", []), "left": s.get("left", []),
                "youth": [w.players[i].name for i in s.get("youth", []) if i in w.players],
-               "awards": s.get("awards"),
+               "awards": s.get("awards"), "sponsorNews": s.get("sponsor") or [],
+               "ballon": {**s["ballon"], "top": [{**t, "club": club_json(w, w.clubs[t["club"]]), "flag": flag(t["nation"])}
+                                                 for t in s["ballon"]["top"]]} if s.get("ballon") else None,
                "champions": [{"league": LEAGUES[int(d)]["short"], "club": w.clubs[i["champion"]].name}
                              for d, i in s["divisions"].items()]}
         return ok(out)
@@ -1047,6 +1117,9 @@ def create_app(svc: Service, token: str) -> web.Application:
     r.add_get("/api/staff", get_staff)
     r.add_post("/api/staff", staff_action)
     r.add_get("/api/friends", get_friends)
+    r.add_get("/api/finance", get_finance)
+    r.add_post("/api/sponsor", sponsor_sign)
+    r.add_get("/api/ballon", get_ballon)
     r.add_post("/api/weekly", weekly_claim)
     r.add_post("/api/friendly", friendly)
     r.add_get("/api/table", get_table)

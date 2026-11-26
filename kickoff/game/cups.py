@@ -257,6 +257,8 @@ def play_stage(w, key: str, rng: random.Random, user_res: dict | None = None) ->
         w.clubs[h].budget += gate
         if h == w.club_id:
             w.season_finances["income"] += gate
+            from .finance import book
+            book(w, "gate", gate)
         leg = {"h": h, "a": a, "hg": res["hg"], "ag": res["ag"]}
         winner = None
         if st["type"] == "single":
@@ -287,6 +289,8 @@ def play_stage(w, key: str, rng: random.Random, user_res: dict | None = None) ->
                 bonus = int(PRIZE[key] * (money if key == "cup" else 1))
                 w.club.budget += bonus
                 w.season_finances["income"] += bonus
+                from .finance import book
+                book(w, "prize", bonus, f"{comp['name']}: призові за {st['label']}")
             res["comp"] = {"key": key, "name": comp["name"], "icon": comp["icon"], "label": st["label"],
                            "agg": leg.get("agg"), "pens": leg.get("pens"),
                            "through": None if winner is None else winner == w.club_id}

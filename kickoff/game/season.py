@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import random
 
+from .finance import book
+
 from .generator import club_level, make_player, refresh_free_agents, youth_player
 from .match import apply_result, simulate
 from .leagues import LEAGUES, PROMOTION
@@ -49,6 +51,9 @@ def start_season(world: World, rng: random.Random) -> None:
     world.add_news(f"Стартував сезон {world.season}. Ціль від правління: топ-{world.board_target}.")
     from . import cups
     cups.setup(world, rng)
+    if world.club_id in world.clubs:
+        from . import sponsors
+        sponsors.on_season_start(world, rng)
 
 
 def board_target(world: World) -> int:
@@ -271,6 +276,7 @@ def play_round(world: World, rng: random.Random | None = None, user_res: dict | 
             res["attendance"] = att
             if home.is_user:
                 world.season_finances["income"] += gate
+                book(world, "gate", gate)
             if detailed:
                 user_res = res
     # ticks for players who were unavailable before this round
@@ -293,6 +299,8 @@ def play_round(world: World, rng: random.Random | None = None, user_res: dict | 
         if club.is_user:
             world.season_finances["wages"] += wages
             world.season_finances["income"] += spon
+            book(world, "wages", wages)
+            book(world, "commercial", spon)
         elif club.budget < 0:
             club.budget = max(club.budget, -500_000)
         msgs += develop(world, club, played, rng, total)
@@ -315,6 +323,8 @@ def play_round(world: World, rng: random.Random | None = None, user_res: dict | 
         world.confidence = max(0, min(100, world.confidence + delta))
         world.last_match = _serialisable(user_res)
     world.round += 1
+    from . import sponsors
+    sponsors.on_round(world)
     ai_transfers(world, rng)
     generate_offers(world, rng)
     if world.confidence <= 0:
@@ -380,6 +390,7 @@ def end_season(world: World, rng: random.Random | None = None) -> dict:
             if club.is_user:
                 world.season_finances["income"] += prize
                 summary["prize"] = prize
+                book(world, "prize", prize, f"Призові за {i + 1}-е місце в лізі")
             # reputation drift
             expected = sorted(rows, key=lambda r: world.clubs[r["club"]].reputation, reverse=True)
             exp_pos = [r["club"] for r in expected].index(club.id)
@@ -499,6 +510,10 @@ def end_season(world: World, rng: random.Random | None = None) -> dict:
     summary["youth"] = youth
     summary["emergency"] = emergency
     refresh_free_agents(world, rng)
+    from . import sponsors
+    from .finance import close_season
+    summary["sponsor"] = sponsors.on_season_end(world, summary["position"])
+    close_season(world)
     world.season += 1
     start_season(world, rng)
     return summary

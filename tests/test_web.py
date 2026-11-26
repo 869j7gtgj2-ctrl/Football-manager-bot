@@ -137,3 +137,29 @@ async def test_staff_weekly_and_friends(tmp_path):
         fr = (await (await c.get("/api/friends", headers=hs[12])).json())["data"]
         other = next(r for r in fr["rows"] if r["uid"] == 11)
         assert other["h2h"] and sum(other["h2h"][k] for k in "wdl") == 1
+
+
+@pytest.mark.asyncio
+async def test_finance_sponsor_and_ballon(tmp_path):
+    app = create_app(Service(Storage(str(tmp_path / "db.sqlite"))), TOKEN)
+    async with TestClient(TestServer(app)) as c:
+        h = {"X-Init-Data": signed({"id": 21, "first_name": "Ілля"})}
+        draft = (await (await c.post("/api/career/draft", json={"slot": 0}, headers=h)).json())["data"]
+        club = next(x for l in draft["leagues"] for x in l["clubs"] if x["name"] == "Полтава")
+        await c.post("/api/career/create", json={"slot": 0, "club_id": club["id"]}, headers=h)
+        f = (await (await c.get("/api/finance", headers=h)).json())["data"]
+        assert len(f["offers"]) == 3 and f["canChange"] and f["sponsor"] is None
+        budget = f["budget"]
+        j = await (await c.post("/api/sponsor", json={"id": f["offers"][0]["id"]}, headers=h)).json()
+        assert j["ok"] and j["data"]["sponsor"]["paid"][0] and j["data"]["budget"] > budget
+        assert not j["data"]["canChange"]
+        while True:
+            j = await (await c.post("/api/match/play", json={"fast": True}, headers=h)).json()
+            if not j["ok"] or j["data"]["seasonOver"]:
+                break
+        f = (await (await c.get("/api/finance", headers=h)).json())["data"]
+        assert f["sponsor"]["paid"][1] and f["income"] > 0 and f["incomeCats"]
+        s = (await (await c.post("/api/season/end", json={}, headers=h)).json())["data"]
+        assert len(s["ballon"]["top"]) == 10 and s["ballon"]["top"][0]["points"] >= s["ballon"]["top"][9]["points"]
+        b = (await (await c.get("/api/ballon", headers=h)).json())["data"]
+        assert b["history"][0]["year"] == s["ballon"]["year"]

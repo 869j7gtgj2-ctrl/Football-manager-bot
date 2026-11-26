@@ -51,6 +51,8 @@ def buy(world: World, pid: int, fee: int | None = None) -> tuple[bool, str]:
     world.club.budget -= fee
     seller.budget += fee
     world.season_finances["transfers_out"] += fee
+    from .finance import book
+    book(world, "transfers", fee, f"Купівля: {p.name} ({seller.name})")
     p.club_id = world.club_id
     p.wage = wage_demand(world, pid)
     p.contract = 3
@@ -211,6 +213,8 @@ def _sign_free(world: World, p) -> tuple[bool, str]:
         return False, f"Потрібен бонус за підпис {money(bonus)}."
     world.club.budget -= bonus
     world.season_finances["transfers_out"] += bonus
+    from .finance import book
+    book(world, "bonus", bonus, f"Бонус за підпис: {p.name}")
     p.club_id = world.club_id
     p.wage = wage
     p.contract = 2
@@ -228,6 +232,8 @@ def sell_to(world: World, pid: int, club_id: int, fee: int) -> tuple[bool, str]:
     buyer.budget -= fee
     world.club.budget += fee
     world.season_finances["transfers_in"] += fee
+    from .finance import book
+    book(world, "sales", fee, f"Продаж: {p.name} ({buyer.name})")
     p.club_id = buyer.id
     p.listed = p.resting = False
     p.wage = max(p.wage, p.fair_wage())
@@ -277,6 +283,8 @@ def release(world: World, pid: int) -> tuple[bool, str]:
     comp = int(p.wage * 11 * p.contract)
     world.club.budget -= comp
     world.season_finances["wages"] += comp
+    from .finance import book
+    book(world, "comp", comp, f"Розірвання контракту: {p.name}")
     p.club_id = None
     p.listed = p.resting = False
     world.add_news(f"📤 Контракт з {p.name} розірвано (компенсація {money(comp)}).")
@@ -334,6 +342,9 @@ def upgrade(world: World, kind: str) -> tuple[bool, str]:
         return False, f"Не вистачає коштів: потрібно {money(cost)}."
     c.budget -= cost
     world.season_finances["transfers_out"] += cost
+    from .finance import book
+    book(world, "infra", cost, {"stadium": "Розширення стадіону", "training": "Тренувальна база",
+                                "academy": "Академія"}.get(kind, kind))
     if kind == "stadium":
         c.stadium += 2500
         return True, f"🏟 Стадіон розширено до {c.stadium:,} місць.".replace(",", " ")

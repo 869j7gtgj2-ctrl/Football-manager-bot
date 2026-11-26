@@ -261,6 +261,92 @@ async function playFriendly(uid) {
   S.friends = (await call('/api/friends')).data; S.keepScroll = true; draw();
 }
 
+/* ---------------- FINANCE & SPONSOR */
+async function openFinance(tab) {
+  haptic(); S.fin = (await call('/api/finance')).data; S.finTab = tab || 'overview'; finSheet();
+}
+function finSheet() {
+  const f = S.fin, t = S.finTab;
+  const tabs = [['overview', 'Огляд'], ['ops', 'Операції'], ['wages', 'Зарплати'], ['sponsor', 'Спонсор']];
+  const st = { good: ['Стабільний', 'green', 'Фінанси в порядку: прогноз покриває зарплати з запасом.'],
+    tight: ['Напружений', 'gold', 'Грошей вистачає, але запас невеликий. Обережно з покупками.'],
+    critical: ['Критичний', 'red', 'Прогноз мінусовий: зарплати не покриті. Продай когось або знайди спонсора.'] }[f.status];
+  let h = `<div class="fin-head"><div><div class="muted" style="font-size:11px;font-weight:800;letter-spacing:.14em">ФІНАНСИ · ${esc(f.season)}</div><div class="h" style="font-size:24px;font-weight:700">${esc(f.club.name)}</div></div>
+    <div style="text-align:right"><div class="big-num" style="font-size:26px;color:${f.budget >= 0 ? 'var(--green)' : 'var(--red)'}">${money(f.budget)}</div><div class="muted" style="font-size:12px;font-weight:700">на рахунку</div></div></div>
+    <div class="seg" style="display:flex;margin:14px 0">${tabs.map(([k, l]) => `<button class="grow ${t === k ? 'on' : ''}" onclick="S.finTab='${k}';finSheet()">${l}</button>`).join('')}</div>`;
+  const bar = (v, max, c) => `<div class="fbar"><i style="width:${Math.max(3, v / (max || 1) * 100)}%;background:${c}"></i></div>`;
+  if (t === 'overview') {
+    h += `<div class="fin-status ${st[1]}"><div class="row between"><span class="muted" style="font-weight:700">Прогноз на кінець сезону</span><span class="pill ${st[1]}">${st[0]}</span></div>
+      <div class="big-num" style="font-size:34px;margin:6px 0;color:${f.forecast >= 0 ? 'var(--text)' : 'var(--red)'}">${money(f.forecast)}</div>
+      <div class="muted" style="font-size:13px;font-weight:600">${st[2]}</div></div>
+      <div class="fin-grid"><div><span>Надходження</span><b style="color:var(--green)">+${money(f.income)}</b><em>цього сезону</em></div>
+      <div><span>Витрати</span><b style="color:var(--red)">−${money(f.expense)}</b><em>трансфери, зарплати, штаб</em></div>
+      <div><span>Щотижня</span><b style="color:${f.weekly >= 0 ? 'var(--green)' : 'var(--red)'}">${f.weekly >= 0 ? '+' : '−'}${money(Math.abs(f.weekly))}</b><em>комерція мінус зарплати</em></div>
+      <div><span>Від спонсора ще</span><b style="color:var(--goldL)">${money(f.pendingSponsor)}</b><em>${f.roundsLeft} турів до кінця</em></div></div>
+      ${f.sponsor ? `<div class="ht-t">🤝 Генеральний спонсор</div>${sponsorCard(f.sponsor, true)}` : `<button class="btn gold tap" style="margin-top:12px" onclick="S.finTab='sponsor';finSheet()">🤝 Обрати генерального спонсора</button>`}
+      ${f.history.length ? `<div class="ht-t">📈 Минулі сезони</div>${f.history.map(x => `<div class="fin-row"><span class="ptag">${esc(x.season)}</span><b class="grow" style="color:var(--green)">+${money(x.income)}</b><b style="color:var(--red)">−${money(x.expense)}</b></div>`).join('')}` : ''}`;
+  } else if (t === 'ops') {
+    const mi = Math.max(1, ...f.incomeCats.map(x => x.amount)), me = Math.max(1, ...f.expenseCats.map(x => x.amount));
+    h += `<div class="ht-t">Доходи <small>+${money(f.income)}</small></div>${f.incomeCats.map(x => `<div class="fin-cat"><span class="fic in">${x.icon}</span><div class="grow"><div class="row between"><b>${esc(x.name)}</b><b style="color:var(--green)">+${money(x.amount)}</b></div>${bar(x.amount, mi, 'linear-gradient(90deg,#1f8f55,#2fbf71)')}</div></div>`).join('') || '<div class="empty">Ще немає</div>'}
+      <div class="ht-t">Витрати <small>−${money(f.expense)}</small></div>${f.expenseCats.map(x => `<div class="fin-cat"><span class="fic out">${x.icon}</span><div class="grow"><div class="row between"><b>${esc(x.name)}</b><b style="color:var(--red)">−${money(x.amount)}</b></div>${bar(x.amount, me, 'linear-gradient(90deg,#a3313a,#e5484d)')}</div></div>`).join('') || '<div class="empty">Ще немає</div>'}
+      <div class="ht-t">Останні операції</div>${f.ledger.map(e => `<div class="fin-row"><span class="fic ${e.amount > 0 ? 'in' : 'out'}" style="width:30px;height:30px;font-size:14px">${e.amount > 0 ? '↑' : '↓'}</span><div class="grow" style="min-width:0"><b class="ellipsis" style="display:block;font-size:14px">${esc(e.text)}</b><span class="muted" style="font-size:12px;font-weight:700">${esc(e.season)} · тур ${e.round}</span></div><b style="color:${e.amount > 0 ? 'var(--green)' : 'var(--red)'}">${e.amount > 0 ? '+' : '−'}${money(Math.abs(e.amount))}</b></div>`).join('') || '<div class="empty">Операцій ще не було</div>'}`;
+  } else if (t === 'wages') {
+    h += `<div class="fin-status"><span class="muted" style="font-weight:700">Зарплатний фонд за сезон</span><div class="big-num" style="font-size:34px;margin:6px 0">${money(f.wagesSeason)}</div>
+      <div class="row between muted" style="font-size:13px;font-weight:700"><span>${f.squadCount} гравців + штаб</span><span>${money(f.wagesWeekly)}/тиж</span></div>
+      <div class="row between muted" style="font-size:13px;font-weight:700;margin-top:4px"><span>Комерційні доходи</span><span style="color:var(--green)">+${money(f.commercialWeekly)}/тиж</span></div></div>
+      <div class="ht-t">💸 Найбільші зарплати</div>${f.earners.map((p, i) => `<div class="fin-row tap" onclick="closeSheet();openPlayer(${p.id})"><span class="rk ${i === 0 ? 'g' : ''}">${i + 1}</span><div class="grow" style="min-width:0"><b class="ellipsis" style="display:block">${esc(p.name)}</b><span class="muted" style="font-size:12px;font-weight:700">${esc(p.role)} · ${p.skill} · контракт до ${esc(p.contract)}</span></div><b>${money(p.wage)}</b></div>`).join('')}
+      ${f.staffWages ? `<div class="fin-row"><span class="rk">👔</span><b class="grow">Тренерський штаб</b><b>${money(f.staffWages)}</b></div>` : ''}`;
+  } else {
+    h += f.sponsor ? `<div class="ht-t">Зараз</div>${sponsorCard(f.sponsor, true)}` : '';
+    if (!f.canChange) h += `<div class="dz-tip" style="margin-top:12px">🔒 Контракт діє ще ${f.sponsor.left} сез. Нові пропозиції з’являться, коли він завершиться.</div>`;
+    else h += `<div class="ht-t">Пропозиції цього сезону <small>${f.offers.length}</small></div><p class="muted" style="font-size:13px;font-weight:600;margin:0 0 8px">Обери одну. Гроші приходять тричі: аванс одразу, зима в середині сезону, фінал у кінці.</p>${f.offers.map(o => sponsorCard(o, false)).join('')}`;
+  }
+  sheet(`<div class="finsheet">${h}</div>`);
+}
+function sponsorCard(o, current) {
+  const paid = o.paid || [];
+  return `<div class="spon ${o.kind} ${current ? 'cur' : ''}"><div class="row" style="gap:12px"><span class="sp-ic">${o.icon}</span><div class="grow"><b style="font-size:17px">${esc(o.brand)}${o.renewal ? ' <span class="pill gold">продовження</span>' : ''}</b>
+    <div class="row" style="gap:6px;margin-top:4px"><span class="pill ${o.kind}">${esc(o.kindName)}</span><span class="muted" style="font-size:12px;font-weight:700">${esc(o.sector)} · ${o.years} сез.</span></div></div>
+    <div style="text-align:right"><div class="big-num" style="font-size:20px;color:var(--goldL)">${money(o.max)}</div><div class="muted" style="font-size:11px;font-weight:700">макс. за сезон</div></div></div>
+    <div class="sp-parts">${o.parts.map((a, i) => `<div class="${paid[i] ? 'paid' : ''}"><span>${S.fin.parts[i]}${paid[i] ? ' ✓' : ''}</span><b>${money(a)}</b></div>`).join('')}</div>
+    <div class="row between" style="margin-top:10px"><span class="muted" style="font-size:13px;font-weight:700">${o.bonus ? `<b style="color:var(--goldL)">+${money(o.bonus.amount)}</b> ${esc(o.bonus.text)}` : 'Лише гарантовані виплати'}</span>
+    ${current ? `<span class="muted" style="font-size:12px;font-weight:700">отримано ${money(o.received || 0)}</span>` : `<button class="btn small gold tap" onclick="signSponsor('${o.id}')">Підписати</button>`}</div></div>`;
+}
+async function signSponsor(id) {
+  try { const j = await api('/api/sponsor', { id }); S.fin = j.data; toast(j.message, 'coins'); haptic('success'); confetti(120); S.finTab = 'overview'; finSheet(); } catch (e) { toast(e.message, 'bad'); }
+}
+
+/* ---------------- GOLDEN BALL */
+async function openBallon() {
+  haptic(); const h = (await call('/api/ballon')).data.history;
+  if (!h.length) { sheet(`<div style="text-align:center"><div style="font-size:54px">⚽</div><div class="h" style="font-size:22px">Золотий м’яч</div><p class="muted" style="font-weight:600">Церемонія відбудеться після завершення першого сезону. Найкращі гравці всіх ліг поборються за трофей.</p></div>`); return; }
+  ceremony(h[0], true);
+}
+function ceremony(b, instant) {
+  return new Promise(resolve => {
+    const root = document.createElement('div'); root.className = 'cer'; document.body.appendChild(root);
+    const top = b.top.slice(); let shown = instant ? top.length : 0, timer;
+    const card = t => `<div class="cer-row ${t.rank <= 3 ? 'r' + t.rank : ''} ${t.mine ? 'mine' : ''}"><span class="cer-n">${t.rank}</span>${crest(t.club, 40)}<div class="grow" style="min-width:0"><b class="ellipsis" style="display:block">${t.flag} ${esc(t.name)}</b>
+      <span class="muted ellipsis" style="display:block;font-size:12px;font-weight:700">${esc(t.club.name)} · ${t.goals} гол. · ${t.assists} пас. · ${t.rating}</span>
+      ${t.tags.length ? `<div class="row" style="gap:4px;margin-top:4px">${t.tags.map(x => `<span class="pill gold">${esc(x)}</span>`).join('')}</div>` : ''}</div><div style="text-align:right"><b class="big-num" style="color:var(--goldL)">${t.points}</b><div class="muted" style="font-size:11px;font-weight:700">балів</div></div></div>`;
+    const winner = t => `<div class="cer-win"><div class="cer-ball">⚽</div><div class="muted" style="font-size:11px;font-weight:800;letter-spacing:.2em;color:var(--goldL)">ВОЛОДАР ЗОЛОТОГО М’ЯЧА</div>
+      <div class="cer-ava">${esc(initials(t.name))}<span>${esc(t.role || t.pos)}</span></div><div class="h cer-name">${esc(t.name)}</div>
+      <div class="row" style="justify-content:center;gap:8px;margin-top:6px">${crest(t.club, 26)}<b>${esc(t.club.name)}</b><span class="muted">· ${t.age} р. ${t.flag}</span></div>
+      <div class="cer-stats"><div><b>${t.goals}</b><span>голів</span></div><div><b>${t.assists}</b><span>асистів</span></div><div><b>${t.apps}</b><span>матчів</span></div><div><b>${t.rating}</b><span>оцінка</span></div></div>
+      ${t.tags.length ? `<div class="row" style="justify-content:center;gap:6px;margin-top:10px">${t.tags.map(x => `<span class="pill gold">${esc(x)}</span>`).join('')}</div>` : ''}</div>`;
+    const render = () => {
+      const rev = top.slice(top.length - shown).filter(t => t.rank > 1);
+      const won = shown >= top.length;
+      root.innerHTML = `<div class="cer-in"><div class="cer-head"><div style="font-size:11px;font-weight:800;letter-spacing:.24em;color:var(--goldL)">ЦЕРЕМОНІЯ · ПАРИЖ</div><div class="h" style="font-size:30px;font-weight:700">Золотий м’яч ${b.year}</div><div class="muted" style="font-weight:600">Найкращий гравець сезону ${esc(b.season)}</div></div>
+        <div class="cer-list">${won ? winner(top[0]) : ''}${rev.map(card).join('')}</div>
+        <button class="btn ${won ? 'gold' : 'ghost'} tap cer-btn">${won ? 'Завершити' : 'Пропустити'}</button></div>`;
+      root.querySelector('.cer-btn').onclick = () => { if (!won) { shown = top.length; clearTimeout(timer); render(); confetti(200); haptic('success'); } else { root.remove(); resolve(); } };
+    };
+    const step = () => { shown++; render(); haptic(shown >= top.length ? 'success' : 'light'); if (shown >= top.length) confetti(220); else timer = setTimeout(step, shown >= top.length - 2 ? 1500 : 850); };
+    render(); if (!instant) timer = setTimeout(step, 700);
+  });
+}
+
 /* ---------------- STAFF */
 async function openStaff() {
   haptic();
@@ -827,7 +913,8 @@ async function endSeason() {
   const good = s.position <= s.target;
   if (good) confetti(220);
   S.team = (await call('/api/team')).data; S.match = (await call('/api/match')).data; draw();
-  sheet(`<div style="text-align:center"><div style="font-size:60px">${s.position === 1 ? '🏆' : good ? '🎉' : '📉'}</div>
+  if (s.ballon && s.ballon.top.length) await ceremony(s.ballon);
+  sheet(`${(s.sponsorNews || []).map(t => `<div class="dz-tip" style="margin-bottom:8px">🤝 ${esc(t)}</div>`).join('')}<div style="text-align:center"><div style="font-size:60px">${s.position === 1 ? '🏆' : good ? '🎉' : '📉'}</div>
     <div class="h" style="font-size:24px;font-weight:800">Сезон ${s.season} завершено</div>
     <p class="muted" style="font-weight:700">${s.position}-е місце в ${esc(s.league)} · ціль була топ-${s.target}</p></div>
     <div class="kv"><div><b style="color:var(--green)">${money(s.prize)}</b><span>Призові</span></div><div><b style="color:var(--gold)">+${s.xp}</b><span>Досвід</span></div><div><b>${s.confidence}%</b><span>Довіра</span></div></div>
@@ -983,7 +1070,7 @@ function clubTab() {
     <div class="stepper"><button onclick="clubAct({ticket:-1})">−</button><b class="big-num">€${c.ticket}</b><button onclick="clubAct({ticket:1})">+</button></div></div>
     <div class="section-title">Інфраструктура</div><div class="card m16 list">${Object.entries(up).map(([k, [i, l]]) => `<div class="item"><span style="font-size:26px">${i}</span><b class="grow">${l}</b>${c.upgrades[k] ? `<button class="btn small violet tap" onclick="clubAct({upgrade:'${k}'})">${money(c.upgrades[k])}</button>` : '<span class="chip">MAX</span>'}</div>`).join('')}</div>
     <div class="section-title">Правління</div><div class="card m16" style="padding:16px"><div class="row between"><b>Ціль: топ-${c.target}</b><b>${c.confidence}%</b></div><div class="bar ${c.confidence > 60 ? 'green' : ''}" style="margin-top:10px"><i style="width:${c.confidence}%"></i></div></div>`;
-  html += `<div class="pad" style="margin-top:14px;display:grid;gap:10px"><button class="btn ghost tap" style="width:100%" onclick="openStaff()">👔 Тренерський штаб</button><button class="btn ghost tap" style="width:100%" onclick="openRecords()">🏛 Зал слави: рекорди і нагороди</button></div>`;
+  html += `<div class="pad" style="margin-top:14px;display:grid;gap:10px"><div class="grid2"><button class="btn ghost tap" onclick="openFinance()">💰 Фінанси</button><button class="btn ghost tap" onclick="openFinance('sponsor')">🤝 Спонсор</button></div><div class="grid2"><button class="btn ghost tap" onclick="openStaff()">👔 Штаб</button><button class="btn ghost tap" onclick="openBallon()">⚽ Золотий м’яч</button></div><button class="btn ghost tap" style="width:100%" onclick="openRecords()">🏛 Зал слави: рекорди і нагороди</button></div>`;
   if (c.trophies.length) html += `<div class="section-title">Трофеї</div><div class="card m16 list">${c.trophies.map(t => `<div class="item"><b>${esc(t)}</b></div>`).join('')}</div>`;
   if (c.history.length) html += `<div class="section-title">Історія</div><div class="card m16 list">${c.history.map(h => `<div class="item"><span class="ptag">${h.season}</span><b class="grow">${esc(h.clubName)} · ${esc(h.league)}</b><b>${h.pos} місце</b></div>`).join('')}</div>`;
   html += `<div class="section-title">Новини</div><div class="card m16 list">${c.news.map(n => `<div class="item" style="font-weight:600;font-size:14px">${esc(n)}</div>`).join('') || '<div class="empty">Тиша</div>'}</div>`;

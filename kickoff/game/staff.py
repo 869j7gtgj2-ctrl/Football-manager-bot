@@ -66,6 +66,8 @@ def hire(w: World, role: str, cid: str) -> tuple[bool, str]:
         return False, f"Не вистачає коштів: потрібно €{fee:,}.".replace(",", " ")
     w.club.budget -= fee
     w.season_finances["transfers_out"] += fee
+    from .finance import book
+    book(w, "staff", fee, f"Найм: {c['name']} ({ROLES[role][1].lower()})")
     w.staff[role] = {"name": c["name"], "nation": c["nation"], "level": c["level"], "age": c["age"]}
     w.staff_market["roles"][role] = [x for x in cands if x["id"] != cid]
     w.add_news(f"{ROLES[role][0]} {ROLES[role][1]} {c['name']} приєднався до штабу.")

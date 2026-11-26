@@ -107,6 +107,9 @@ class Service:
                 res["records"] = ev.update_records(w, res)
                 ev.open_press(w, res, rng)
                 ev.maybe_dilemma(w, rng or random.Random())
+                if gf > ga:
+                    from .game import sponsors
+                    sponsors.on_win(w)
         return res
 
     def finish_season(self, w, prof: Profile) -> dict:
@@ -121,6 +124,8 @@ class Service:
         season = w.season
         from .game.events import season_awards
         awards = season_awards(w)
+        from .game.ballon import compute as ballon
+        ball = ballon(w)
         summary = end_season(w, random.Random())
         summary["xp"] = prof.on_season(summary, club.id)
         summary["cups_won"] = [c["name"] for c in (summary.get("cups") or {}).values() if c.get("winner") == club.id]
@@ -129,7 +134,7 @@ class Service:
             "pts": row["pts"], "w": row["w"], "d": row["d"], "l": row["l"], "gf": row["gf"], "ga": row["ga"],
             "scorer": scorer, "best": best,
             "promoted_me": club.id in summary.get("promoted", []), "relegated_me": club.id in summary.get("relegated", []),
-            "awards": awards, "confidence": w.confidence, "fired": w.fired, "new_target": w.board_target,
+            "awards": awards, "ballon": ball, "confidence": w.confidence, "fired": w.fired, "new_target": w.board_target,
         })
         return summary
 
@@ -220,6 +225,8 @@ class Service:
         if item == "sponsor":
             w.club.budget += 1_000_000
             w.season_finances["income"] += 1_000_000
+            from .game.finance import book
+            book(w, "owner", 1_000_000, "Спонсорський контракт з магазину")
         elif item == "medic":
             if not any(p.injured for p in squad):
                 return False, "Травмованих немає."
@@ -271,6 +278,8 @@ class Service:
             if item == "megasponsor":
                 w.club.budget += 10_000_000
                 w.season_finances["income"] += 10_000_000
+                from .game.finance import book
+                book(w, "owner", 10_000_000, "Генеральний інвестор (преміум)")
             else:
                 if len(w.squad(w.club_id)) >= 30:
                     return False, "У складі вже 30 гравців."
