@@ -4,7 +4,7 @@ import random
 from kickoff.game import new_world, start_career
 from kickoff.game.match import pick_lineup, simulate
 from kickoff.game.models import World
-from kickoff.game.season import end_season, play_round, round_robin, season_over, table
+from kickoff.game.season import end_season, play_next, play_round, round_robin, season_over, table
 from kickoff.game import transfers as tr
 
 
@@ -50,7 +50,7 @@ def test_full_seasons_and_roundtrip():
     rng = random.Random(5)
     for _ in range(2):
         while not season_over(w):
-            play_round(w, rng)
+            play_next(w, rng)
         for lid in w.fixtures:
             rows = table(w, lid)
             assert all(r["p"] == (len(rows) - 1) * 2 for r in rows), lid
@@ -59,7 +59,7 @@ def test_full_seasons_and_roundtrip():
         assert len(w.squad(w.club_id)) >= 16
     w2 = World.from_dict(json.loads(json.dumps(w.to_dict())))
     assert w2.club.name == w.club.name and len(w2.players) == len(w.players)
-    play_round(w2, rng)
+    play_next(w2, rng)
 
 
 def test_buy_and_sell_moves_money():
@@ -106,3 +106,28 @@ def test_roles_and_custom_lineup():
     opp = next(c for c in w.division_clubs(3) if c.id != cid)
     res = simulate(w, w.club, opp, random.Random(1))
     assert len(res["xi"][0]) == 11
+
+
+def test_cups_full_season():
+    import random
+    from kickoff.game import new_world, start_career
+    from kickoff.game.season import season_over, end_season
+    from kickoff.service import Service
+
+    class P:
+        def on_match(self, a, b):
+            return 0
+    w = new_world(1, "T", seed=11)
+    cid = next(c.id for c in w.clubs.values() if c.division == 1)
+    start_career(w, cid, random.Random(2))
+    assert set(w.cups) == {"cup", "ucl"} and len(w.cups["ucl"]["teams"]) == 24
+    svc = Service.__new__(Service)
+    rng = random.Random(4)
+    for _ in range(120):
+        if season_over(w):
+            break
+        svc.play(w, P(), rng)
+    assert season_over(w)
+    assert w.cups["cup"]["winner"] and w.cups["ucl"]["winner"]
+    end_season(w, rng)
+    assert len(w.euro_next["UCL"]) == 24 and w.cups["ucl"]["teams"]

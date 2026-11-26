@@ -159,6 +159,8 @@ class World:
     active_lineup: int = 1
     captain: Optional[int] = None
     last_xi: list = field(default_factory=list)
+    cups: dict = field(default_factory=dict)  # "cup" / "ucl" -> competition state (see game/cups.py)
+    euro_next: dict = field(default_factory=dict)
     season_finances: dict = field(default_factory=lambda: {"income": 0, "wages": 0, "transfers_in": 0, "transfers_out": 0})
 
     # ---------- helpers ----------

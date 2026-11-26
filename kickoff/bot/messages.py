@@ -65,6 +65,8 @@ def season_report(s: dict, p: Profile, level_before: int) -> str:
         trophies.append(f"🏆 Чемпіон: {league}")
     if s.get("promoted_me"):
         trophies.append("🚀 Підвищення до УПЛ")
+    for name in s.get("cups_won", []):
+        trophies.append(f"{'⭐' if 'чемпіонів' in name else '🏆'} {name}")
     lines += ["", "🏆 <b>Трофеї сезону:</b>"] + ([f"   {t}" for t in trophies] or ["   цього разу без трофеїв"])
     if s.get("scorer"):
         lines += ["", f"⚽ Найкращий бомбардир: <b>{escape(s['scorer'][0])}</b> · {s['scorer'][1]} гол."]

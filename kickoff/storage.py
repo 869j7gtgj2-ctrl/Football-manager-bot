@@ -24,6 +24,7 @@ class Storage:
         c.execute("CREATE TABLE IF NOT EXISTS hall (user_id INTEGER PRIMARY KEY, manager TEXT, club TEXT,"
                   " seasons INTEGER, titles INTEGER, promotions INTEGER, score INTEGER, updated REAL)")
         c.execute("CREATE TABLE IF NOT EXISTS realdata (key TEXT PRIMARY KEY, data TEXT NOT NULL, updated REAL)")
+        c.execute("CREATE TABLE IF NOT EXISTS crests (key TEXT PRIMARY KEY, ctype TEXT, data BLOB, src TEXT, updated REAL)")
         c.commit()
 
     # ------------------------------------------------------------ profiles
@@ -112,3 +113,19 @@ class Storage:
         with self._lock:
             rows = self.conn.execute("SELECT key, data FROM realdata").fetchall()
         return {k: json.loads(d) for k, d in rows}
+
+    # ------------------------------------------------------------ crest images (served by our own server)
+    def crest_put(self, key: str, ctype: str, data: bytes, src: str) -> None:
+        with self._lock:
+            self.conn.execute("REPLACE INTO crests VALUES (?, ?, ?, ?, ?)", (key, ctype, data, src, time.time()))
+            self.conn.commit()
+
+    def crest_get(self, key: str) -> tuple[str, bytes] | None:
+        with self._lock:
+            row = self.conn.execute("SELECT ctype, data FROM crests WHERE key=?", (key,)).fetchone()
+        return (row[0], row[1]) if row else None
+
+    def crest_keys(self) -> dict:
+        with self._lock:
+            rows = self.conn.execute("SELECT key, src FROM crests").fetchall()
+        return dict(rows)

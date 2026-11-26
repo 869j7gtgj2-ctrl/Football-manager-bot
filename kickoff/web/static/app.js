@@ -351,8 +351,8 @@ function teamTab() {
     <div class="stats"><div><b>${st.rating}</b><span>Рейтинг</span></div><div><b style="color:var(--green)">${st.wins}</b><span>Перемог</span></div>
     <div><b>${st.played}/${st.rounds}</b><span>Матчів</span></div><div><b style="color:var(--gold);font-size:16px">${money(st.value)}</b><span>Вартість</span></div></div>
     <div class="row" style="margin-top:14px;flex-wrap:wrap;gap:8px"><span class="muted" style="font-size:12px;font-weight:800;letter-spacing:.12em">ТРОФЕЇ:</span>
-      ${t.trophies.league ? `<span class="trophy gold">🏆 Ліга ×${t.trophies.league}</span>` : ''}${t.trophies.promo ? `<span class="trophy green">🚀 Підвищення ×${t.trophies.promo}</span>` : ''}
-      ${!t.trophies.league && !t.trophies.promo ? '<span class="dim" style="font-weight:700;font-size:13px">ще попереду</span>' : ''}</div>
+      ${t.trophies.league ? `<span class="trophy gold">🏆 Ліга ×${t.trophies.league}</span>` : ''}${t.trophies.promo ? `<span class="trophy green">🚀 Підвищення ×${t.trophies.promo}</span>` : ''}${t.trophies.cup ? `<span class="trophy gold">🏆 Кубок ×${t.trophies.cup}</span>` : ''}${t.trophies.ucl ? `<span class="trophy gold">⭐ ЛЧ ×${t.trophies.ucl}</span>` : ''}
+      ${!t.trophies.league && !t.trophies.promo && !t.trophies.cup && !t.trophies.ucl ? '<span class="dim" style="font-weight:700;font-size:13px">ще попереду</span>' : ''}</div>
     <div class="conf">Довіра правління <div class="bar ${t.confidence > 60 ? 'green' : t.confidence > 30 ? '' : 'violet'}"><i style="width:${t.confidence}%"></i></div>${t.confidence}% · ціль топ-${t.target}</div></div>
   <div class="tabs">${[['xi', 'Основа'], ['squad', 'Гравці'], ['academy', 'Академія'], ['tactics', 'Тактика']].map(([k, l]) => `<button class="${S.sub === k ? 'on' : ''}" onclick="S.sub='${k}';S.keepScroll=true;draw()">${l}</button>`).join('')}</div>`;
   if (S.sub === 'squad') {
@@ -504,10 +504,13 @@ function matchTab() {
     <div class="h" style="font-size:22px;font-weight:800;margin:8px 0">Сезон завершено!</div><p class="muted" style="font-weight:700">Підсумки, призові, підвищення і нові вихованці академії чекають.</p>
     <button class="btn gold tap" onclick="endSeason()">Підсумки сезону</button></div>`;
   const h = m.home, a = m.away; const tot = h.rating + a.rating;
-  let html = `<div class="card glow vs m16" style="margin-top:16px"><div class="muted" style="font-weight:800;letter-spacing:.14em;font-size:12px">ТУР ${m.round} / ${m.rounds}</div>
-    <div class="teams" style="margin-top:14px"><div class="t">${crest(h, 74)}<span>${esc(h.name)}</span><span class="dim" style="font-size:12px">${h.pos} місце</span>${formHTML(h.form)}</div>
+  if (m.draw && !S.drawShown) { S.drawShown = true; setTimeout(() => showDraw(m.draw), 50); }
+  const compHead = m.comp ? `<div class="comp-badge ${m.comp.key}">${m.comp.icon} ${esc(m.comp.name)} · ${esc(m.comp.label)}</div>${m.comp.first ? `<div class="muted" style="font-size:12px;font-weight:700;margin-top:6px">Перший матч: ${esc(m.comp.first.home)} ${m.comp.first.hg}:${m.comp.first.ag} ${esc(m.comp.first.away)}</div>` : ''}`
+    : `<div class="muted" style="font-weight:800;letter-spacing:.14em;font-size:12px">ТУР ${m.round} / ${m.rounds}</div>`;
+  let html = `<div class="card glow vs m16 ${m.comp ? 'comp-' + m.comp.key : ''}" style="margin-top:16px">${compHead}
+    <div class="teams" style="margin-top:14px"><div class="t">${crest(h, 74)}<span>${esc(h.name)}</span><span class="dim" style="font-size:12px">${h.pos ? h.pos + ' місце' : esc(h.leagueShort)}</span>${formHTML(h.form)}</div>
     <div class="h" style="font-size:22px;color:var(--dim)">VS</div>
-    <div class="t">${crest(a, 74)}<span>${esc(a.name)}</span><span class="dim" style="font-size:12px">${a.pos} місце</span>${formHTML(a.form)}</div></div>
+    <div class="t">${crest(a, 74)}<span>${esc(a.name)}</span><span class="dim" style="font-size:12px">${a.pos ? a.pos + ' місце' : esc(a.leagueShort)}</span>${formHTML(a.form)}</div></div>
     <div class="cmp" style="margin-top:16px"><b>${h.rating}</b><div class="bars"><i style="width:${h.rating / tot * 100}%"></i><i style="flex:1"></i></div><b>${a.rating}</b></div>
     <div class="muted" style="font-size:12px;font-weight:700">Рейтинг стартових складів</div>
     <button class="btn tap" style="margin-top:18px" onclick="playMatch()">${IC.play.replace('<svg', '<svg width="20" height="20"')} Грати матч</button>
@@ -584,9 +587,12 @@ function evHTML(e, r) {
 function liveView() {
   const L = S.live, r = L.res; const [hg, ag] = liveScore(L);
   const evs = r.events.filter(e => e.min <= L.minute && (e.type !== 'sub' || L.done)).slice().reverse();
-  let html = `<div class="card glow vs m16" style="margin-top:16px"><div class="teams"><div class="t">${crest(r.home, 64)}<span>${esc(r.home.name)}</span></div>
+  const cl = r.comp ? `<div class="comp-badge ${r.comp.key}" style="margin-bottom:12px">${r.comp.icon} ${esc(r.comp.name)} · ${esc(r.comp.label)}</div>` : '';
+  const extra = r.comp && L.done ? [r.comp.agg ? `Загальний рахунок ${r.comp.agg[0]}:${r.comp.agg[1]}` : '', r.comp.pens ? `Пенальті ${r.comp.pens[0]}:${r.comp.pens[1]}` : '', r.comp.through === true ? '✅ Проходимо далі!' : r.comp.through === false ? '❌ Виліт з турніру' : ''].filter(Boolean).join(' · ') : '';
+  let html = `<div class="card glow vs m16 ${r.comp ? 'comp-' + r.comp.key : ''}" style="margin-top:16px">${cl}<div class="teams"><div class="t">${crest(r.home, 64)}<span>${esc(r.home.name)}</span></div>
     <div><div class="score" id="score">${hg}:${ag}</div><div class="clock" id="clock">${L.done ? 'Фінал' : `<i></i>${L.minute}'`}</div></div>
     <div class="t">${crest(r.away, 64)}<span>${esc(r.away.name)}</span></div></div>
+    ${extra ? `<div class="comp-res">${extra}</div>` : ''}
     <div class="bar green" style="margin-top:16px"><i id="lbar" style="width:${L.minute / 90 * 100}%"></i></div>
     ${!L.done ? `<div class="row" style="justify-content:center;margin-top:12px;gap:8px"><button class="chip spd ${L.speed === 1 ? 'on' : ''}" data-s="1" onclick="S.live.speed=1;updateLive()">×1</button><button class="chip spd ${L.speed > 1 ? 'on' : ''}" data-s="3" onclick="S.live.speed=3;updateLive()">×3</button><button class="chip" onclick="finishLive()">⏭ Пропустити</button></div>` : ''}</div>`;
   if (L.done) {
@@ -620,7 +626,7 @@ function updateLive() {
   }
   document.querySelectorAll('.spd').forEach(b => b.classList.toggle('on', (+b.dataset.s > 1) === (L.speed > 1)));
 }
-async function nextMatch() { S.live = null; loading(); S.team = (await call('/api/team')).data; S.match = (await call('/api/match')).data; draw(); }
+async function nextMatch() { S.live = null; S.drawShown = false; loading(); S.team = (await call('/api/team')).data; S.match = (await call('/api/match')).data; draw(); }
 async function endSeason() {
   loading();
   const s = (await call('/api/season/end', {})).data;
@@ -660,7 +666,9 @@ async function offer(id, accept) { const j = await call('/api/offer', { id, acce
 /* ---------------- TABLE */
 function tableTab() {
   const t = S.table;
-  let html = `<div class="chips" style="margin-top:14px">${t.leagues.map(l => `<button class="chip ${l.id === t.league ? 'on' : ''}" onclick="S.league=${l.id};go('table')">${l.flag} ${esc(l.short)}</button>`).join('')}</div>
+  const views = `<div class="seg m16" style="margin-top:14px;display:flex">${[['league', 'Ліга'], ['cup', 'Кубок'], ['ucl', '⭐ ЛЧ']].map(([k, l]) => `<button class="grow ${(S.tview || 'league') === k ? 'on' : ''}" onclick="setTView('${k}')">${l}</button>`).join('')}</div>`;
+  if ((S.tview || 'league') !== 'league') return views + cupsView();
+  let html = views + `<div class="chips" style="margin-top:10px">${t.leagues.map(l => `<button class="chip ${l.id === t.league ? 'on' : ''}" onclick="S.league=${l.id};go('table')">${l.flag} ${esc(l.short)}</button>`).join('')}</div>
   <div class="card m16" style="padding:6px 8px;margin-top:8px"><div class="h" style="font-weight:800;padding:10px 6px">${esc(t.name)}</div><table class="lt"><tr><th>#</th><th style="text-align:left">Клуб</th><th>І</th><th>РМ</th><th>Форма</th><th>О</th></tr>`;
   const n = t.rows.length;
   t.rows.forEach(r => {
@@ -672,6 +680,64 @@ function tableTab() {
   if (t.scorers.length) html += `<div class="section-title">Бомбардири</div><div class="card m16 list">${t.scorers.map((s, i) => `<div class="item"><b class="big-num" style="width:24px;color:${i < 3 ? 'var(--gold)' : 'var(--muted)'}">${i + 1}</b><div class="grow"><b>${s.flag} ${esc(s.name)}</b><div class="muted" style="font-size:12px;font-weight:700">${esc(s.club)} · 🅰️ ${s.assists}</div></div><b class="big-num" style="color:var(--lime)">${s.goals}</b></div>`).join('')}</div>`;
   return html;
 }
+
+async function setTView(v) { haptic(); S.tview = v; if (v !== 'league') S.cups = (await call('/api/cups')).data; S.keepScroll = true; draw(); }
+function scoreTxt(t) {
+  if (!t.legs.length) return '<span class="dim">–:–</span>';
+  return t.legs.map(l => `${l.hg}:${l.ag}`).join(' · ') + (t.legs.at(-1).pens ? ` <small class="muted">(пен. ${t.legs.at(-1).pens.join(':')})</small>` : '');
+}
+function tieRow(t) {
+  const w = t.winner;
+  const nm = c => c ? `<div class="row" style="gap:6px;min-width:0">${crest(c, 22)}<span class="ellipsis ${w === c.id ? 'win' : w ? 'lose' : ''}">${esc(c.name)}</span></div>` : '<span class="dim">вільний прохід</span>';
+  return `<div class="tie ${t.mine ? 'me' : ''}">${nm(t.a)}<b class="tsc">${t.b ? scoreTxt(t) : ''}</b>${nm(t.b)}</div>`;
+}
+function cupsView() {
+  const comp = (S.cups.comps || []).find(c => c.key === S.tview);
+  if (!comp) return '<div class="empty">Немає даних</div>';
+  let html = `<div class="card glow m16 cup-head ${comp.key}" style="margin-top:12px"><div style="font-size:34px">${comp.icon}</div><div class="grow"><div class="h" style="font-size:22px;text-transform:uppercase">${esc(comp.name)}</div>
+    <div class="muted" style="font-weight:700;font-size:13px">${comp.winner ? `Переможець: ${esc(comp.winner.name)}` : comp.alive ? 'Ти ще в боротьбі 💪' : comp.in ? 'Твій клуб вибув' : 'Твій клуб не грає в турнірі цього сезону'}</div></div></div>`;
+  if (comp.table) {
+    html += `<div class="section-title">Загальний етап <small>тур ${comp.played}/6 · топ-16 далі</small></div><div class="card m16" style="padding:6px 8px"><table class="lt"><tr><th>#</th><th style="text-align:left">Клуб</th><th>І</th><th>РМ</th><th>О</th></tr>`;
+    comp.table.forEach(r => { html += `<tr class="${r.me ? 'me' : ''}"><td><span class="pos ${r.pos <= 8 ? 'top' : r.pos <= 16 ? 'up' : ''}">${r.pos}</span></td><td class="c"><div class="row" style="gap:8px">${crest(r.club, 24)}<span class="ellipsis" style="max-width:150px">${esc(r.club.name)}</span></div></td><td>${r.p}</td><td>${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</td><td><b class="pts">${r.pts}</b></td></tr>`; });
+    html += '</table></div>';
+  }
+  const seen = new Set();
+  comp.stages.forEach(st => {
+    if (st.type === 'league' || !st.ties.length) return;
+    const base = st.label.split(' · ')[0];
+    if (st.type === 'leg1') return;  // shown together with the second leg
+    if (seen.has(base)) return; seen.add(base);
+    let ties = st.ties;
+    if (st.type === 'leg2') { const first = comp.stages[comp.stages.indexOf(st) - 1]; ties = first.ties.map((t, i) => ({ ...t, legs: [...t.legs, ...(st.ties[i] ? st.ties[i].legs : [])], winner: st.ties[i] ? st.ties[i].winner : null })); }
+    ties = ties.slice().sort((a, b) => (b.mine - a.mine));
+    html += `<div class="section-title">${esc(base)} ${st.done ? '' : '<small>попереду</small>'}</div><div class="card m16 ties">${ties.map(tieRow).join('')}</div>`;
+  });
+  // knockout stage drawn only as leg1 so far
+  comp.stages.forEach((st, i) => {
+    if (st.type === 'leg1' && st.ties.length && !comp.stages[i + 1].ties.some(t => t.legs.length) && !seen.has(st.label.split(' · ')[0])) {
+      const base = st.label.split(' · ')[0]; seen.add(base);
+      html += `<div class="section-title">${esc(base)} <small>${st.done ? '1-й матч зіграно' : 'жеребкування проведено'}</small></div><div class="card m16 ties">${st.ties.slice().sort((a, b) => b.mine - a.mine).map(tieRow).join('')}</div>`;
+    }
+  });
+  return html;
+}
+
+/* ---------------- cup draw ceremony */
+function showDraw(d) {
+  const root = document.createElement('div'); root.className = 'draw-root'; root.id = 'draw';
+  root.innerHTML = `<div class="draw-box"><div class="draw-ic">${d.icon}</div><div class="draw-t">${esc(d.name)}</div><div class="draw-s">Жеребкування · ${esc(d.label)}</div>
+    <div class="draw-list"></div><button class="btn tap" id="draw-go" style="opacity:0;pointer-events:none" onclick="closeDraw('${d.key}')">До матчу →</button></div>`;
+  document.body.appendChild(root); haptic('medium');
+  const list = root.querySelector('.draw-list');
+  const ties = d.ties.filter(t => t.b).slice(0, 10);
+  ties.forEach((t, i) => setTimeout(() => {
+    const el = document.createElement('div'); el.className = 'draw-pair' + (t.mine ? ' me' : '');
+    el.innerHTML = `<div class="dp-team">${crest(t.a, 34)}<span>${esc(t.a.name)}</span></div><b>VS</b><div class="dp-team r"><span>${esc(t.b.name)}</span>${crest(t.b, 34)}</div>`;
+    list.appendChild(el); if (t.mine) { haptic('heavy'); confetti(70); }
+    if (i === ties.length - 1) { const b = root.querySelector('#draw-go'); b.style.opacity = 1; b.style.pointerEvents = 'auto'; }
+  }, 600 + i * (t.mine ? 900 : 380)));
+}
+async function closeDraw(key) { const el = $('#draw'); if (el) el.remove(); try { await api('/api/cup/seen', { key }); } catch (e) {} }
 
 /* ---------------- CLUB */
 function clubTab() {

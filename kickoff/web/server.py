@@ -16,9 +16,10 @@ from ..game.leagues import LEAGUES
 from ..game.match import _auto_fill, available_pool, chemistry, formation_slots, pick_lineup, prole
 from ..game.roles import FORMATIONS as SLOTS, familiarity
 from ..game.models import FORMATIONS, POS_NAME, SQUAD_MAX, STYLES, TRAINING
+from ..game import cups as cupsmod
 from ..game.lore import EURO_NAME, LORE, euro_for, generic_story
 from ..game.roles import ROLES, line_of
-from ..realdata import CRESTS
+from ..realdata import CREST_IMG, CREST_STATUS, CRESTS
 from ..game.season import fair_ticket, next_fixture, position, season_over, sponsor_income, table, wage_bill
 from ..game.transfers import asking_price, upgrade_cost, wage_demand
 from ..meta import MAX_SLOTS, SHOP, SLOT_PRICE
@@ -57,10 +58,17 @@ def season_label(season: int) -> str:
 
 
 def club_json(w, c) -> dict:
-    return {"id": c.id, "name": c.name, "city": c.city, "colors": c.colors, "crest": c.crest or CRESTS.get(c.key, ""),
+    return {"id": c.id, "name": c.name, "city": c.city, "colors": c.colors, "crest": crest_url(c),
             "rep": c.reputation,
             "league": c.division, "leagueShort": LEAGUES[c.division]["short"], "country": c.country,
             "flag": LEAGUES[c.division]["flag"], "key": c.key}
+
+
+def crest_url(c) -> str:
+    if c.key in CREST_IMG:
+        from urllib.parse import quote
+        return "/crest/" + quote(c.key)
+    return c.crest or CRESTS.get(c.key, "")
 
 
 def player_json(w, p, xi: set | None = None) -> dict:
@@ -154,7 +162,7 @@ def team_json(w) -> dict:
         groups.append({"pos": pos, "title": POS_NAME[pos], "players": [player_json(w, p, xi) for p in ps]})
     trophies = {}
     for t in w.trophies:
-        k = "league" if t.startswith("🏆") else "promo"
+        k = "promo" if not t.startswith("🏆") else "ucl" if "Ліга чемпіонів" in t else "cup" if "Кубок" in t else "league"
         trophies[k] = trophies.get(k, 0) + 1
     return {
         "club": club_json(w, c), "season": season_label(w.season), "budget": c.budget,
@@ -301,8 +309,46 @@ def dossier(w, opp, rows) -> dict:
     }
 
 
+def tie_json(w, t: dict) -> dict:
+    c = lambda i: club_json(w, w.clubs[i]) if i is not None else None
+    return {"a": c(t["a"]), "b": c(t["b"]), "legs": t["legs"], "winner": t.get("winner"),
+            "mine": w.club_id in (t["a"], t["b"])}
+
+
+def draw_json(w) -> dict | None:
+    d = cupsmod.pending_draw(w)
+    if not d:
+        return None
+    comp = w.cups[d["key"]]
+    st = comp["stages"][d["stage"]]
+    ties = [tie_json(w, t) for t in st["ties"]]
+    ties.sort(key=lambda t: (t["b"] is None, not t["mine"]))
+    return {"key": d["key"], "name": comp["name"], "icon": comp["icon"], "label": st["label"].split(" · ")[0],
+            "ties": ties}
+
+
+def cups_json(w) -> dict:
+    out = []
+    for key, comp in (w.cups or {}).items():
+        stages = [{"label": st["label"], "type": st["type"], "done": st["done"], "round": st["round"],
+                   "ties": [tie_json(w, t) for t in st["ties"]] if st["type"] != "league" else []}
+                  for st in comp["stages"]]
+        item = {"key": key, "name": comp["name"], "icon": comp["icon"], "stages": stages,
+                "winner": club_json(w, w.clubs[comp["winner"]]) if comp.get("winner") else None,
+                "in": w.club_id in (comp.get("teams") or comp["alive"]) or w.club_id in comp.get("out", []),
+                "alive": w.club_id in comp["alive"]}
+        if key == "ucl":
+            item["table"] = [{"pos": i + 1, "club": club_json(w, w.clubs[r["club"]]), **{k: r[k] for k in ("p", "w", "d", "l", "gf", "ga", "pts")},
+                              "me": r["club"] == w.club_id} for i, r in enumerate(cupsmod.league_table(w, comp))]
+            item["played"] = sum(1 for st in comp["stages"] if st["type"] == "league" and st["done"])
+        out.append(item)
+    return {"comps": out}
+
+
 def match_preview(w) -> dict:
-    nf = next_fixture(w)
+    cupsmod.ensure(w)
+    ev = cupsmod.user_next(w)
+    nf = (ev["home"], ev["away"]) if ev else next_fixture(w)
     if not nf:
         return {"seasonOver": True}
     h, a = nf
@@ -317,12 +363,16 @@ def match_preview(w) -> dict:
                 "hg": w.last_match["hg"], "ag": w.last_match["ag"]}
     return {
         "round": w.round + 1, "rounds": w.rounds_total,
-        "home": {**club_json(w, w.clubs[h]), "pos": pos[h], "form": form[h], "rating": team_rating(w, w.clubs[h])},
-        "away": {**club_json(w, w.clubs[a]), "pos": pos[a], "form": form[a], "rating": team_rating(w, w.clubs[a])},
+        "home": {**club_json(w, w.clubs[h]), "pos": pos.get(h), "form": form.get(h, []), "rating": team_rating(w, w.clubs[h])},
+        "away": {**club_json(w, w.clubs[a]), "pos": pos.get(a), "form": form.get(a, []), "rating": team_rating(w, w.clubs[a])},
         "isHome": h == w.club_id, "formation": w.club.formation, "style": w.club.style, "styles": STYLES,
         "lineup": [{"slot": s, **player_json(w, p)} for s, p in lu], "unavailable": unavailable, "last": last,
         "xi": {k: v for k, v in lineup_json(w).items() if k in ("slots", "captain", "chemistry", "rating")},
         "dossier": dossier(w, w.clubs[a if h == w.club_id else h], rows),
+        "comp": ({k: ev[k] for k in ("key", "name", "icon", "label")} |
+                 ({"first": {"home": w.clubs[ev["first"]["h"]].name, "away": w.clubs[ev["first"]["a"]].name,
+                             "hg": ev["first"]["hg"], "ag": ev["first"]["ag"]}} if ev.get("first") else {})) if ev else None,
+        "draw": (lambda d: d if d and ev and d["key"] == ev["key"] else None)(draw_json(w)),
         "seasonOver": False,
     }
 
@@ -350,7 +400,8 @@ def match_result_json(w, res: dict) -> dict:
             "shots": res["shots"], "onTarget": res["on_target"], "xg": res["xg"],
             "attendance": res.get("attendance", 0), "ratings": ratings,
             "motm": {"name": motm.name, "rating": res["ratings"].get(res["motm"])} if motm else None,
-            "xp": res.get("xp", 0), "fired": w.fired, "seasonOver": season_over(w), "isHome": res["home"] == w.club_id}
+            "xp": res.get("xp", 0), "fired": w.fired, "seasonOver": season_over(w), "isHome": res["home"] == w.club_id,
+            "comp": res.get("comp")}
 
 
 def table_json(w, league: int) -> dict:
@@ -688,6 +739,24 @@ def create_app(svc: Service, token: str) -> web.Application:
             return ok(lineup_json(w), msg)
         return fail(msg or "Помилка.")
 
+    async def get_cups(request):
+        w, _ = world(request)
+        if w is None:
+            return fail("Немає активної кар’єри.", 404)
+        cupsmod.ensure(w)
+        return ok(cups_json(w))
+
+    async def cup_seen(request):
+        w, _ = world(request)
+        b = await body(request)
+        comp = (w.cups or {}).get(b.get("key", ""))
+        if comp:
+            i = cupsmod.next_stage(comp)
+            if i is not None:
+                comp["seen"] = max(comp.get("seen", -1), i)
+                svc.st.save(w)
+        return ok(None)
+
     async def get_club(request):
         w, _ = world(request)
         if w is None:
@@ -729,6 +798,8 @@ def create_app(svc: Service, token: str) -> web.Application:
     r.add_post("/api/tactics", set_tactics)
     r.add_get("/api/club", get_club)
     r.add_get("/api/lineup", get_lineup)
+    r.add_get("/api/cups", get_cups)
+    r.add_post("/api/cup/seen", cup_seen)
     r.add_post("/api/lineup", post_lineup)
     r.add_post("/api/club", club_action)
 
@@ -737,10 +808,28 @@ def create_app(svc: Service, token: str) -> web.Application:
         resp.headers["Cache-Control"] = "no-cache"
         return resp
 
+    async def crest_img(request):
+        got = svc.st.crest_get(request.match_info["key"])
+        if not got:
+            raise web.HTTPNotFound()
+        return web.Response(body=got[1], content_type=got[0], headers={"Cache-Control": "public, max-age=604800"})
+
+    async def debug_crests(request):
+        from ..game.leagues import CLUBS
+        out = []
+        for lid, clubs in CLUBS.items():
+            for name, _, _, _, key in clubs:
+                out.append({"league": LEAGUES[lid]["short"], "club": name, "key": key,
+                            "stored": key in CREST_IMG, "status": CREST_STATUS.get(key, "not checked yet")})
+        return web.json_response({"stored": sum(o["stored"] for o in out), "total": len(out), "clubs": out},
+                                 dumps=lambda o: json.dumps(o, ensure_ascii=False))
+
     async def health(request):
         return web.Response(text="ok")
 
     r.add_get("/", index)
     r.add_get("/health", health)
+    r.add_get("/crest/{key}", crest_img)
+    r.add_get("/debug/crests", debug_crests)
     r.add_static("/static/", STATIC)
     return app

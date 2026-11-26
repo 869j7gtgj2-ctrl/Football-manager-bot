@@ -192,6 +192,109 @@ async def fetch_wiki_crest(session, token: str, lid: int) -> str | None:
     return infobox_crest((data.get("parse") or {}).get("wikitext") or "")
 
 
+# ------------------------------------------------------------------ crest images (several sources, stored locally)
+WIKI_UK = "https://uk.wikipedia.org/w/api.php"
+CREST_IMG: dict[str, str] = {}     # club key -> source url of the stored image
+CREST_STATUS: dict[str, str] = {}  # club key -> last resolver result (for /api/debug/crests)
+UK_IMAGE = re.compile(r"\|\s*(?:емблема|логотип|зображення|image|logo)\s*=\s*(?:\[\[)?(?:Файл:|File:|Зображення:|Image:)?\s*"
+                      r"([^|\]\n{}]+?\.(?:svg|png|jpe?g|gif))", re.I)
+
+
+async def api_get(session, url: str, **params) -> dict:
+    params = {"format": "json", "formatversion": "2", **params}
+    async with session.get(url, params=params, headers=UA, timeout=30) as r:
+        return await r.json(content_type=None)
+
+
+async def crest_candidates(session, name_ua: str, city: str, token: str, lid: int) -> list[str]:
+    from urllib.parse import quote
+    out: list[str] = []
+    title = None
+    try:
+        title = await wiki_title(session, token, lid)
+        if title:
+            c = await wiki_crest(session, title)
+            if c:
+                out.append(c)
+            data = await wiki(session, action="parse", page=title, prop="wikitext", redirects=1, section=0)
+            c = infobox_crest((data.get("parse") or {}).get("wikitext") or "")
+            if c:
+                out.append(c)
+            props = await wiki(session, action="query", prop="pageprops", ppprop="wikibase_item", titles=title, redirects=1)
+            qid = next((p.get("pageprops", {}).get("wikibase_item") for p in props.get("query", {}).get("pages", [])), None)
+            if qid:
+                ent = await api_get(session, WIKIDATA, action="wbgetentities", ids=qid, props="claims")
+                for claim in ((ent.get("entities") or {}).get(qid, {}).get("claims", {}).get("P154") or []):
+                    f = claim.get("mainsnak", {}).get("datavalue", {}).get("value")
+                    if f:
+                        out.append(f"https://commons.wikimedia.org/wiki/Special:FilePath/{quote(f.replace(' ', '_'))}?width=200")
+    except Exception as e:  # keep trying other sources
+        log.warning("crest en/wikidata failed for %s: %s", token, e)
+    try:  # Ukrainian Wikipedia: best coverage for Ukrainian clubs
+        q = f"{name_ua} {city} футбольний клуб"
+        data = await api_get(session, WIKI_UK, action="query", list="search", srsearch=q, srlimit=3)
+        hits = [h["title"] for h in data.get("query", {}).get("search", [])
+                if not any(x in h["title"].lower() for x in ("сезон", "список", "стадіон", "жіноч", "u-19", "u-21"))]
+        if hits:
+            t = hits[0]
+            d = await api_get(session, WIKI_UK, action="query", prop="pageimages", piprop="thumbnail", pithumbsize=200,
+                              pilicense="any", titles=t, redirects=1)
+            for p in d.get("query", {}).get("pages", []):
+                if p.get("thumbnail"):
+                    out.append(p["thumbnail"]["source"])
+            d = await api_get(session, WIKI_UK, action="parse", page=t, prop="wikitext", redirects=1, section=0)
+            m = UK_IMAGE.search((d.get("parse") or {}).get("wikitext") or "")
+            if m:
+                f = quote(m.group(1).strip().replace(" ", "_"))
+                out.append(f"https://uk.wikipedia.org/wiki/Special:FilePath/{f}?width=200")
+    except Exception as e:
+        log.warning("crest uk failed for %s: %s", token, e)
+    return list(dict.fromkeys(out))
+
+
+async def download_image(session, url: str) -> tuple[str, bytes] | None:
+    try:
+        async with session.get(url, headers=UA, timeout=30, allow_redirects=True) as r:
+            ctype = r.headers.get("Content-Type", "").split(";")[0].strip()
+            if r.status != 200 or not ctype.startswith("image/"):
+                return None
+            data = await r.read()
+            return (ctype, data) if 100 < len(data) < 1_500_000 else None
+    except Exception:
+        return None
+
+
+async def crest_pass(storage: Storage, only_missing: bool = True) -> None:
+    CREST_IMG.update(storage.crest_keys())
+    async with aiohttp.ClientSession() as session:
+        for lid, clubs in CLUBS.items():
+            for name, city, _, _, token in clubs:
+                if only_missing and token in CREST_IMG:
+                    CREST_STATUS[token] = "ok (cached)"
+                    continue
+                cands = []
+                known = (storage.real_get(token)[0] or {}).get("crest")
+                if known:
+                    cands.append(known)
+                cands += await crest_candidates(session, name, city, token, lid)
+                got = None
+                for url in dict.fromkeys(cands):
+                    img = await download_image(session, url)
+                    if img:
+                        got = (url, img)
+                        break
+                if got:
+                    storage.crest_put(token, got[1][0], got[1][1], got[0])
+                    CREST_IMG[token] = got[0]
+                    CRESTS[token] = got[0]
+                    CREST_STATUS[token] = f"ok: {got[0]}"
+                    log.info("crest stored: %s <- %s", name, got[0])
+                else:
+                    CREST_STATUS[token] = f"missing (tried {len(cands)} urls)"
+                    log.warning("crest NOT found: %s (%s), candidates: %s", name, token, cands)
+                await asyncio.sleep(0.3)
+
+
 async def wikidata_dobs(session, links: list[str]) -> dict[str, str]:
     out = {}
     for i in range(0, len(links), 50):
@@ -281,10 +384,16 @@ async def refresh(storage: Storage, fd_key: str, force: bool = False) -> None:
 
 async def refresh_loop(storage: Storage, fd_key: str) -> None:
     load_crests(storage)
+    CREST_IMG.update(storage.crest_keys())
     await asyncio.sleep(5)
+    try:
+        await crest_pass(storage)
+    except Exception:
+        log.exception("crest pass failed")
     while True:
         try:
             await refresh(storage, fd_key)
+            await crest_pass(storage)
         except Exception:
             log.exception("real data refresh failed")
         await asyncio.sleep(12 * 3600)

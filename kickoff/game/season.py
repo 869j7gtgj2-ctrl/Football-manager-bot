@@ -47,6 +47,8 @@ def start_season(world: World, rng: random.Random) -> None:
     world.board_target = board_target(world)
     world.offers = []
     world.add_news(f"Стартував сезон {world.season}. Ціль від правління: топ-{world.board_target}.")
+    from . import cups
+    cups.setup(world, rng)
 
 
 def board_target(world: World) -> int:
@@ -100,7 +102,8 @@ def next_fixture(world: World) -> tuple[int, int] | None:
 
 
 def season_over(world: World) -> bool:
-    return world.round >= len(world.fixtures.get(world.club.division, []))
+    from . import cups
+    return world.round >= len(world.fixtures.get(world.club.division, [])) and not cups.due(world)
 
 
 # ---------------------------------------------------------------- economy
@@ -221,7 +224,7 @@ def generate_offers(world: World, rng: random.Random) -> None:
 # ---------------------------------------------------------------- round
 def play_round(world: World, rng: random.Random | None = None) -> dict | None:
     rng = rng or random.Random()
-    if season_over(world):
+    if world.round >= len(world.fixtures.get(world.club.division, [])):
         return None
     r = world.round
     total = len(world.fixtures[world.club.division])
@@ -295,6 +298,22 @@ def play_round(world: World, rng: random.Random | None = None) -> dict | None:
     return user_res
 
 
+def play_next(world: World, rng: random.Random | None = None) -> dict | None:
+    """Next step of the calendar: due cup/European stages first, then the league round."""
+    rng = rng or random.Random()
+    from . import cups
+    cups.ensure(world, rng)
+    for _ in range(40):
+        pending = cups.due(world)
+        if not pending:
+            break
+        res = cups.play_stage(world, pending[0], rng)
+        if res:
+            world.last_match = _serialisable(res)
+            return res
+    return play_round(world, rng)
+
+
 def _serialisable(res: dict) -> dict:
     out = dict(res)
     for k in ("minutes", "ratings", "goals_by", "assists_by", "yellows", "fatigue"):
@@ -350,6 +369,9 @@ def end_season(world: World, rng: random.Random | None = None) -> dict:
         world.confidence = min(100, world.confidence + 15 + (world.board_target - pos) * 3)
     else:
         world.confidence = max(0, world.confidence - (pos - world.board_target) * 8)
+    from . import cups
+    cups.qualify(world, tables)
+    summary["cups"] = {k: {"name": c["name"], "winner": c.get("winner")} for k, c in (world.cups or {}).items()}
     # promotion / relegation
     summary["relegated"], summary["promoted"] = [], []
     for upper, lower, n in PROMOTION:

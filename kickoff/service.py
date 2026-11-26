@@ -55,7 +55,8 @@ class Service:
     def play(self, w, prof: Profile, rng: random.Random | None = None) -> dict | None:
         if season_over(w):
             return None
-        res = play_round(w, rng or random.Random())
+        from .game.season import play_next
+        res = play_next(w, rng or random.Random())
         if res:
             home = res["home"] == w.club_id
             gf, ga = (res["hg"], res["ag"]) if home else (res["ag"], res["hg"])
@@ -74,6 +75,7 @@ class Service:
         season = w.season
         summary = end_season(w, random.Random())
         summary["xp"] = prof.on_season(summary, club.id)
+        summary["cups_won"] = [c["name"] for c in (summary.get("cups") or {}).values() if c.get("winner") == club.id]
         summary.update({
             "club": club.name, "season_label": f"{2025 + season}/{str(2026 + season)[-2:]}",
             "pts": row["pts"], "w": row["w"], "d": row["d"], "l": row["l"], "gf": row["gf"], "ga": row["ga"],
