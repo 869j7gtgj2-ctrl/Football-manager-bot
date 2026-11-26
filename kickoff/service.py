@@ -105,7 +105,7 @@ class Service:
                 from .game import events as ev
                 w.records.pop("_boost", None)
                 res["records"] = ev.update_records(w, res)
-                ev.open_press(w, res)
+                ev.open_press(w, res, rng)
                 ev.maybe_dilemma(w, rng or random.Random())
         return res
 

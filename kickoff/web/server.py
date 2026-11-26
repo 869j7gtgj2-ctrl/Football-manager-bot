@@ -400,6 +400,35 @@ TALK_INFO = {"fire": ("🔥", "Розірвати їх!", "Шалена моти
              "blame": ("😤", "Рознос у роздягальні", "Ризиковано: або встряхне, або зламає.")}
 
 
+def pitch_json(w, home, away, xi: list, events: list) -> dict:
+    """Both starting XIs with formation coordinates for the live 2D match view."""
+    sides = []
+    for side, c in enumerate((home, away)):
+        coords = SLOTS.get(c.formation) or SLOTS["4-4-2"]
+        ps = []
+        for i, pid in enumerate(xi[side] if side < len(xi) else []):
+            p = w.players.get(int(pid))
+            if not p:
+                continue
+            role, x, y = coords[i] if i < len(coords) else ("CM", 50, 50)
+            ps.append({"id": p.id, "name": p.name, "short": p.name.split()[-1], "skill": p.skill, "role": role,
+                       "x": x, "y": y, "gk": role == "GK"})
+        sides.append(ps)
+    extra = {}
+    for e in events:
+        if e.get("type") == "sub" and e.get("in") in w.players:
+            p = w.players[e["in"]]
+            extra[str(p.id)] = {"id": p.id, "name": p.name, "short": p.name.split()[-1], "skill": p.skill}
+    everyone = [x for ps in sides for x in ps] + list(extra.values())
+    count = {}
+    for x in everyone:
+        count[x["short"]] = count.get(x["short"], 0) + 1
+    for x in everyone:
+        if count[x["short"]] > 1 and len(x["name"].split()) > 1:
+            x["short"] = f"{x['name'][0]}. {x['short']}"
+    return {"sides": sides, "extra": extra, "colors": [home.colors, away.colors]}
+
+
 def halftime_json(w, sim) -> dict:
     side = 0 if sim.home.id == w.club_id else 1
     t = sim.teams[side]
@@ -414,6 +443,7 @@ def halftime_json(w, sim) -> dict:
             "xg": [round(sim.teams[0].xg, 2), round(sim.teams[1].xg, 2)],
             "lineup": [pj(s, p) for s, p in t.lineup], "bench": [pj(p.role, p) for p in t.bench],
             "subsLeft": 5 - t.subs, "style": w.club.style, "styles": STYLES,
+            "pitch": pitch_json(w, sim.home, sim.away, sim.xi, sim.events),
             "talks": [{"id": k, "icon": v[0], "name": v[1], "hint": v[2]} for k, v in TALK_INFO.items()]}
 
 
@@ -436,7 +466,8 @@ def match_result_json(w, res: dict) -> dict:
             "attendance": res.get("attendance", 0), "ratings": ratings,
             "motm": {"name": motm.name, "rating": res["ratings"].get(res["motm"])} if motm else None,
             "xp": res.get("xp", 0), "coins": res.get("coins", 0), "fired": w.fired, "seasonOver": season_over(w), "isHome": res["home"] == w.club_id,
-            "comp": res.get("comp"), "records": res.get("records") or [], **life_json(w)}
+            "comp": res.get("comp"), "records": res.get("records") or [], **life_json(w),
+            "pitch": pitch_json(w, w.clubs[res["home"]], w.clubs[res["away"]], res.get("xi") or [[], []], res["events"])}
 
 
 def records_json(w) -> dict:

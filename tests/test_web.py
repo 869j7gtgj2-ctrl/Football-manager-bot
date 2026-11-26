@@ -52,6 +52,7 @@ async def test_full_flow(tmp_path):
         ht = (await (await c.post("/api/match/play", json={}, headers=h)).json())["data"]
         assert ht["half"] and ht["minute"] == 45 and 9 <= len(ht["lineup"]) <= 11 and ht["bench"]
         assert all(e["min"] <= 45 for e in ht["events"])
+        assert len(ht["pitch"]["sides"]) == 2 and len(ht["pitch"]["sides"][0]) >= 9
         sub = [[ht["lineup"][-1]["id"], ht["bench"][0]["id"]]]
         res = (await (await c.post("/api/match/second", json={"talk": "fire", "style": "attacking", "subs": sub},
                                    headers=h)).json())["data"]

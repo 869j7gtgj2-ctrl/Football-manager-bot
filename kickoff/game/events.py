@@ -5,66 +5,7 @@ import random
 
 from .models import World
 
-# ---------------------------------------------------------------- press conference
-PRESS = {
-    "bigwin": ("Розгромна перемога! Тепер ви фаворити?", [
-        ("humble", "Ми лише на початку шляху", {"morale": 2, "boost": 1.02}),
-        ("hype", "Нас уже ніхто не зупинить!", {"morale": 5, "boost": 0.99, "conf": 2}),
-        ("players", "Це повністю заслуга хлопців", {"morale": 6}),
-    ]),
-    "win": ("Важлива перемога. Що було ключовим?", [
-        ("tactics", "Ми переграли їх тактично", {"conf": 3}),
-        ("spirit", "Характер і самовіддача команди", {"morale": 4}),
-        ("lucky", "Чесно, трохи пощастило", {"boost": 1.02, "morale": -1}),
-    ]),
-    "draw": ("Нічия. Ви задоволені результатом?", [
-        ("ok", "Очко теж важливе", {"morale": 2}),
-        ("angry", "Ні, ми мали вигравати", {"morale": -2, "boost": 1.03}),
-        ("ref", "Суддя забрав у нас перемогу", {"conf": -2, "morale": 3}),
-    ]),
-    "loss": ("Поразка. Що пішло не так?", [
-        ("blame", "Гравці не виконали установку", {"morale": -5, "boost": 1.04}),
-        ("me", "Відповідальність на мені", {"morale": 4, "conf": -2}),
-        ("future", "Робимо висновки і йдемо далі", {"morale": 1, "boost": 1.01}),
-    ]),
-    "bigloss": ("Розгром… Уболівальники вимагають пояснень.", [
-        ("sorry", "Вибачаюсь перед фанатами", {"conf": 2, "morale": -1}),
-        ("fight", "Наступного матчу побачите іншу команду", {"boost": 1.05, "morale": -2}),
-        ("excuse", "У нас купа травм і втома", {"conf": -4, "morale": 3}),
-    ]),
-}
-
-
-def open_press(w: World, res: dict) -> None:
-    home = res["home"] == w.club_id
-    gf, ga = (res["hg"], res["ag"]) if home else (res["ag"], res["hg"])
-    kind = "bigwin" if gf - ga >= 3 else "win" if gf > ga else "draw" if gf == ga else "bigloss" if ga - gf >= 3 else "loss"
-    q, answers = PRESS[kind]
-    w.press = {"kind": kind, "q": q, "answers": [{"id": a, "text": t} for a, t, _ in answers]}
-
-
-def answer_press(w: World, aid: str) -> tuple[bool, str]:
-    if not w.press:
-        return False, "Пресконференцію вже завершено."
-    eff = next((e for a, _, e in PRESS[w.press["kind"]][1] if a == aid), None)
-    if eff is None:
-        return False, "Невідома відповідь."
-    for p in w.squad(w.club_id):
-        p.morale = max(10, min(100, p.morale + eff.get("morale", 0)))
-    w.confidence = max(0, min(100, w.confidence + eff.get("conf", 0)))
-    if eff.get("boost"):
-        w.records["_boost"] = eff["boost"]
-    parts = []
-    if eff.get("morale"):
-        parts.append(f"настрій {'+' if eff['morale'] > 0 else ''}{eff['morale']}")
-    if eff.get("conf"):
-        parts.append(f"довіра {'+' if eff['conf'] > 0 else ''}{eff['conf']}")
-    if eff.get("boost", 1) > 1:
-        parts.append("команда заведена на наступний матч")
-    elif eff.get("boost", 1) < 1:
-        parts.append("ризик недооцінити суперника")
-    w.press = {}
-    return True, "🎙 " + (", ".join(parts) or "журналісти задоволені")
+from .press import answer_press, open_press  # noqa: F401  (re-exported)
 
 
 # ---------------------------------------------------------------- records

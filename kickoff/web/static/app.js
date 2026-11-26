@@ -133,7 +133,7 @@ function nav() {
   const dot = S.profile && (S.profile.daily.available || S.profile.claimable);
   return `<nav class="nav">${t.map(([k, l, i]) => `<button class="${S.view === k ? 'on' : ''}" onclick="show('${k}')">${i}${l}${k === 'earn' && dot ? '<span class="dot"></span>' : ''}</button>`).join('')}</nav>`;
 }
-function render(html) { $('#app').innerHTML = gradDefs + html + nav(); }
+function render(html) { $('#app').innerHTML = gradDefs + html + nav(); if (window.MatchViz) MatchViz.mount(); }
 function loading() { render('<div class="spinner"></div>'); }
 
 async function show(view) {
@@ -146,6 +146,7 @@ async function show(view) {
 function draw() {
   ({ home: drawHome, friends: drawFriends, shop: drawShop, earn: drawEarn, career: drawCareer, newcareer: drawNewCareer }[S.view] || drawHome)();
   window.scrollTo && S.keepScroll !== true && window.scrollTo(0, 0);
+  if (S.keepScroll !== true) { const a = $('#app'); a.classList.remove('enter'); void a.offsetWidth; a.classList.add('enter'); clearTimeout(window.__entT); window.__entT = setTimeout(() => a.classList.remove('enter'), 900); }
   S.keepScroll = false;
 }
 async function loadProfile() { const j = await call('/api/profile'); S.profile = j.data; }
@@ -648,6 +649,7 @@ async function playMatch(fast) {
   let res;
   try { res = (await api('/api/match/play', fast ? { fast: true } : {})).data; } catch (e) { toast(e.message, 'bad'); return; }
   S.live = { res, minute: fast ? 90 : 0, shown: fast ? res.events.length : 0, done: false, speed: 1, half: !!res.half, ht: null };
+  if (fast) MatchViz.stop(); else MatchViz.start(S.live);
   draw();
   if (!fast) await runLive(); else finishLive();
 }
@@ -655,7 +657,7 @@ async function runLive() {
   const L = S.live;
   const stop = () => L.half ? 45 : 90;
   while (L.minute < stop() && S.live === L) {
-    await sleep(L.speed > 1 ? 40 : 125);
+    await sleep(L.speed > 1 ? 210 : 660);
     L.minute++;
     const evs = L.res.events.filter(e => e.min <= L.minute);
     if (evs.length !== L.shown) {
@@ -692,6 +694,7 @@ async function secondHalf() {
   try { res = (await api('/api/match/second', { talk: H.talk, style: H.style, subs: H.subs })).data; } catch (e) { toast(e.message, 'bad'); return; }
   haptic('heavy');
   L.res = res; L.half = false; L.ht = null; L.shown = res.events.filter(e => e.min <= 45).length;
+  MatchViz.reload(L);
   S.keepScroll = false; draw();
   await runLive();
 }
@@ -783,6 +786,7 @@ function liveView() {
     ${extra ? `<div class="comp-res">${extra}</div>` : ''}
     <div class="bar green" style="margin-top:16px"><i id="lbar" style="width:${L.minute / 90 * 100}%"></i></div>
     ${!L.done ? `<div class="row" style="justify-content:center;margin-top:12px;gap:8px"><button class="chip spd ${L.speed === 1 ? 'on' : ''}" data-s="1" onclick="S.live.speed=1;updateLive()">×1</button><button class="chip spd ${L.speed > 1 ? 'on' : ''}" data-s="3" onclick="S.live.speed=3;updateLive()">×3</button><button class="chip" onclick="skipLive()">⏭ ${L.half ? 'До перерви' : 'Пропустити'}</button></div>` : ''}</div>`;
+  if (window.__viz) html += `<div class="vizwrap m16"><div id="vizbox" class="vizbox"></div><div id="ticker" class="ticker"></div></div>`;
   if (L.ht) return html + halfTimeHTML() + `<div class="feed" data-n="0">${evs.map(e => evHTML(e, r)).join('')}</div>`;
   if (L.done) {
     if (r.press) html += pressHTML(r.press);
@@ -803,7 +807,7 @@ function updateLive() {
   const L = S.live;
   if (!L || L.done || L.ht || !$('#feed')) { S.keepScroll = true; draw(); return; }
   const [hg, ag] = liveScore(L);
-  $('#score').textContent = `${hg}:${ag}`;
+  const sc = $('#score'); if (sc.textContent !== `${hg}:${ag}`) { sc.textContent = `${hg}:${ag}`; sc.classList.remove('bump'); void sc.offsetWidth; sc.classList.add('bump'); }
   $('#clock').innerHTML = `<i></i>${L.minute}'`;
   $('#lbar').style.width = (L.minute / 90 * 100) + '%';
   const evs = L.res.events.filter(e => e.min <= L.minute && e.type !== 'sub');
@@ -816,7 +820,7 @@ function updateLive() {
   }
   document.querySelectorAll('.spd').forEach(b => b.classList.toggle('on', (+b.dataset.s > 1) === (L.speed > 1)));
 }
-async function nextMatch() { if (S.live && S.live.res.press) { toast('Спершу дай відповідь журналістам 🎙', 'bad'); return; } S.live = null; S.drawShown = false; loading(); S.team = (await call('/api/team')).data; S.match = (await call('/api/match')).data; draw(); }
+async function nextMatch() { if (S.live && S.live.res.press) { toast('Спершу дай відповідь журналістам 🎙', 'bad'); return; } S.live = null; MatchViz.stop(); S.drawShown = false; loading(); S.team = (await call('/api/team')).data; S.match = (await call('/api/match')).data; draw(); }
 async function endSeason() {
   loading();
   const s = (await call('/api/season/end', {})).data;
