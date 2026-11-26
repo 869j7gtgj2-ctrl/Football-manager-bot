@@ -720,7 +720,7 @@ function matchTab() {
   const compHead = m.comp ? `<div class="comp-badge ${m.comp.key}">${m.comp.icon} ${esc(m.comp.name)} · ${esc(m.comp.label)}</div>${m.comp.first ? `<div class="muted" style="font-size:12px;font-weight:700;margin-top:6px">Перший матч: ${esc(m.comp.first.home)} ${m.comp.first.hg}:${m.comp.first.ag} ${esc(m.comp.first.away)}</div>` : ''}`
     : `<div class="muted" style="font-weight:800;letter-spacing:.14em;font-size:12px">ТУР ${m.round} / ${m.rounds}</div>`;
   let html = jobBanner(m) + (m.press ? pressHTML(m.press) : '') + (m.dilemmas || []).map(dilemmaHTML).join('');
-  html += `<div class="card glow vs m16 ${m.comp ? 'comp-' + m.comp.key : ''}" style="margin-top:16px">${compHead}
+  html += `<div class="card glow vs m16 ${m.comp ? 'comp-' + m.comp.key : ''} ${m.derby ? 'derby' : ''}" style="margin-top:16px">${m.derby ? `<div class="derby-tag">🔥 ${esc(m.derby.name)} 🔥<small>Особисті: ${m.derby.w}В ${m.derby.d}Н ${m.derby.l}П · повний стадіон, ×1.5 за квитки</small></div>` : ''}${compHead}
     <div class="teams" style="margin-top:14px"><div class="t">${crest(h, 74)}<span>${esc(h.name)}</span><span class="dim" style="font-size:12px">${h.pos ? h.pos + ' місце' : esc(h.leagueShort)}</span>${formHTML(h.form)}</div>
     <div class="h" style="font-size:22px;color:var(--dim)">VS</div>
     <div class="t">${crest(a, 74)}<span>${esc(a.name)}</span><span class="dim" style="font-size:12px">${a.pos ? a.pos + ' місце' : esc(a.leagueShort)}</span>${formHTML(a.form)}</div></div>
@@ -895,6 +895,7 @@ function liveView() {
   if (window.__viz) html += `<div class="vizwrap m16"><div id="vizbox" class="vizbox"></div><div id="ticker" class="ticker"></div></div>`;
   if (L.ht) return html + halfTimeHTML() + `<div class="feed" data-n="0">${evs.map(e => evHTML(e, r)).join('')}</div>`;
   if (L.done) {
+    if (r.derby) { const me = r.isHome ? r.hg - r.ag : r.ag - r.hg; html += `<div class="derby-res m16 ${me > 0 ? 'w' : me < 0 ? 'l' : ''}">🔥 ${esc(r.derby)}: ${me > 0 ? 'місто наше! +5 настрою всім, +4 довіри' : me < 0 ? 'болюча поразка. −3 настрою, −4 довіри' : 'нічия, ніхто не поступився'}</div>`; }
     if (r.press) html += pressHTML(r.press);
     html += `<div class="card m16" style="padding:16px;margin-top:12px">${[['Володіння', r.possession + '%', (100 - r.possession) + '%', r.possession, 100 - r.possession],
       ['Удари', r.shots[0], r.shots[1], r.shots[0], r.shots[1]], ['У площину', r.onTarget[0], r.onTarget[1], r.onTarget[0], r.onTarget[1]],
@@ -1078,6 +1079,7 @@ async function openRecords() {
     <div class="ht-t">⚽ Найкращі бомбардири</div><div class="list">${top(r.scorers, 'гол.')}</div>
     <div class="ht-t">👕 Найбільше матчів</div><div class="list">${top(r.apps, 'матч.')}</div>
     ${r.awards.map(a => `<div class="ht-t">🏅 Нагороди ${esc(a.season)}</div><div class="awards">${a.items.map(x => `<div class="aw ${x.mine ? 'mine' : ''}"><span>${x.icon}</span><div class="grow"><small>${esc(x.title)}</small><b>${esc(x.name)}</b><em>${esc(x.club)} · ${esc(x.value)}</em></div></div>`).join('')}</div>`).join('')}
+    ${r.derbies && r.derbies.length ? `<div class="ht-t">🔥 Дербі</div><div class="list">${r.derbies.map(d => `<div class="item">${crest(d.club, 30)}<div class="grow"><b>${esc(d.club.name)}</b><div class="muted" style="font-size:12px;font-weight:700">${esc(d.name)}</div></div><b style="color:var(--green)">${d.w}</b><b>${d.d}</b><b style="color:var(--red)">${d.l}</b></div>`).join('')}</div>` : ''}
     ${r.trophies.length ? `<div class="ht-t">🏆 Трофеї</div>${r.trophies.map(t => `<div class="item"><b>${esc(t)}</b></div>`).join('')}` : ''}`);
 }
 function clubTab() {
@@ -1110,7 +1112,7 @@ function fixtureStrip() {
   if (!pick.length) return '';
   return `<div class="section-title row between" style="white-space:nowrap"><span>Календар</span><span class="row" style="gap:6px"><button class="chip" onclick="openTotw()">⭐ Збірна туру</button><button class="chip" onclick="openCalendar()">📅 Усі</button></span></div>
     <div class="fx-strip m16">${pick.map(e => { const o = e.isHome ? e.away : e.home; return `<div class="fx ${e.res || ''} ${e.next ? 'next' : ''}" onclick="openCalendar()">
-      <span class="fx-c">${e.comp.icon}</span>${o ? crest(o, 34) : '<span class="fx-q">?</span>'}<b>${e.played ? (e.isHome ? `${e.hg}:${e.ag}` : `${e.ag}:${e.hg}`) : e.next ? 'НАСТ.' : e.isHome ? 'вдома' : 'виїзд'}</b></div>`; }).join('')}</div>`;
+      <span class="fx-c">${e.derby ? '🔥' : e.comp.icon}</span>${o ? crest(o, 34) : '<span class="fx-q">?</span>'}<b>${e.played ? (e.isHome ? `${e.hg}:${e.ag}` : `${e.ag}:${e.hg}`) : e.next ? 'НАСТ.' : e.isHome ? 'вдома' : 'виїзд'}</b></div>`; }).join('')}</div>`;
 }
 async function openCalendar() {
   haptic(); const c = (await call('/api/calendar')).data; S.cal = c;
@@ -1119,7 +1121,7 @@ async function openCalendar() {
     const nm = t => t ? `<div class="cal-t ${t.id === (S.team && S.team.club.id) ? 'me' : ''}">${crest(t, 28)}<span class="ellipsis">${esc(t.name)}</span></div>` : '<div class="cal-t"><span class="fx-q">?</span><span class="dim">жеребкування</span></div>';
     const score = e.played ? `<b class="cal-sc">${e.hg}:${e.ag}</b>${e.pens ? `<small class="muted">пен. ${e.pens.join(':')}</small>` : e.agg ? `<small class="muted">заг. ${e.agg.join(':')}</small>` : ''}` : `<b class="cal-sc dim">–:–</b>`;
     return `<div class="cal ${e.res || ''} ${e.next ? 'next' : ''} ${e.comp.key}" ${e.next ? 'id="cal-next"' : ''}>
-      <div class="cal-h"><span>${e.comp.icon} ${esc(e.comp.key === 'league' ? e.comp.name + ' · ' + e.label : e.label)}</span>${e.res ? `<span class="cal-r ${e.res}">${resTxt[e.res]}</span>` : e.next ? '<span class="cal-r nx">НАСТУПНИЙ</span>' : ''}</div>
+      <div class="cal-h"><span>${e.comp.icon} ${esc(e.comp.key === 'league' ? e.comp.name + ' · ' + e.label : e.label)}${e.derby ? ` <b class="cal-d">🔥 ${esc(e.derby)}</b>` : ''}</span>${e.res ? `<span class="cal-r ${e.res}">${resTxt[e.res]}</span>` : e.next ? '<span class="cal-r nx">НАСТУПНИЙ</span>' : ''}</div>
       <div class="cal-m">${nm(e.home)}<div class="cal-mid">${score}</div>${nm(e.away)}</div></div>`;
   }).join('');
   sheet(`<div class="h" style="font-size:24px;font-weight:800;text-transform:uppercase">📅 Календар ${esc(c.season)}</div>

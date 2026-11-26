@@ -249,6 +249,11 @@ def generate_offers(world: World, rng: random.Random) -> None:
 
 
 # ---------------------------------------------------------------- round
+def derby_name(world, h, a):
+    from .derby import name
+    return name(world, h, a)
+
+
 def play_round(world: World, rng: random.Random | None = None, user_res: dict | None = None) -> dict | None:
     rng = rng or random.Random()
     if world.round >= len(world.fixtures.get(world.club.division, [])):
@@ -275,6 +280,8 @@ def play_round(world: World, rng: random.Random | None = None, user_res: dict | 
                 league_ratings.update(res.get("ratings", {}))
             world.results.append(MatchResult(round=rr, division=div, home=h, away=a, hg=res["hg"], ag=res["ag"]))
             att, gate = gate_income(world, home, rng)
+            if derby_name(world, h, a):
+                gate = int(gate * 1.5)
             home.budget += gate
             res["attendance"] = att
             if home.is_user:

@@ -257,3 +257,26 @@ async def test_manager_career_jobs(tmp_path):
         assert "jobs" in s
         j = (await (await c.get("/api/jobs", headers=h)).json())["data"]
         assert j["repLog"]
+
+
+@pytest.mark.asyncio
+async def test_derbies(tmp_path):
+    app = create_app(Service(Storage(str(tmp_path / "db.sqlite"))), TOKEN)
+    async with TestClient(TestServer(app)) as c:
+        h = {"X-Init-Data": signed({"id": 24, "first_name": "Ілля"})}
+        draft = (await (await c.post("/api/career/draft", json={"slot": 0}, headers=h)).json())["data"]
+        club = next(x for l in draft["leagues"] for x in l["clubs"] if x["name"] == "Реал Мадрид")
+        await c.post("/api/career/create", json={"slot": 0, "club_id": club["id"]}, headers=h)
+        cal = (await (await c.get("/api/calendar", headers=h)).json())["data"]
+        derbies = [e for e in cal["items"] if e.get("derby")]
+        assert {e["derby"] for e in derbies} >= {"Ель Класіко", "Мадридське дербі"} and len(derbies) >= 4
+        seen = 0
+        for _ in range(60):
+            m = (await (await c.get("/api/match", headers=h)).json())["data"]
+            if m.get("seasonOver"):
+                break
+            j = (await (await c.post("/api/match/play", json={"fast": True}, headers=h)).json())["data"]
+            assert bool(j["derby"]) == bool(m["derby"])
+            seen += bool(j["derby"])
+        r = (await (await c.get("/api/records", headers=h)).json())["data"]
+        assert seen >= 4 and sum(d["w"] + d["d"] + d["l"] for d in r["derbies"]) == seen

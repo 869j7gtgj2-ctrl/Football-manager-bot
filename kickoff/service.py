@@ -111,6 +111,8 @@ class Service:
                 from .game import events as ev
                 w.records.pop("_boost", None)
                 res["records"] = ev.update_records(w, res)
+                from .game import derby
+                res["derby"] = derby.after_match(w, res)
                 ev.open_press(w, res, rng)
                 ev.maybe_dilemma(w, rng or random.Random())
                 if gf > ga:

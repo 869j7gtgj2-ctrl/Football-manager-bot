@@ -102,6 +102,7 @@ class Profile:
     unbeaten: int = 0
     last_coins: int = 0
     weekly: dict = field(default_factory=dict)
+    reminded: str = ""    # date of the last streak reminder sent by the bot
     h2h: dict = field(default_factory=dict)  # friend uid (str) -> {"w","d","l","last": date}  # {"week", "c": counters, "claimed": [ids], "bonus": bool}
 
     # ---------- serialisation

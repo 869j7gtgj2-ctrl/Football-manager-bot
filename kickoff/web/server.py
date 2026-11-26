@@ -349,6 +349,9 @@ def calendar_json(w) -> dict:
                 res = "W" if (ph > pa) == home else "L"
             d["res"] = res
         d["isHome"] = e["home"] == w.club_id
+        if e["home"] and e["away"]:
+            from ..game.derby import name as derby_name
+            d["derby"] = derby_name(w, e["home"], e["away"])
         out.append(d)
     pl = [e for e in out if e.get("res")]
     return {"items": out, "played": len(pl), "total": len([e for e in out if not e.get("tbd")]),
@@ -452,6 +455,7 @@ def match_preview(w) -> dict:
                              "hg": ev["first"]["hg"], "ag": ev["first"]["ag"]}} if ev.get("first") else {})) if ev else None,
         "draw": (lambda d: d if d and ev and d["key"] == ev["key"] else None)(draw_json(w)),
         "seasonOver": False, "predict": predict(w, w.clubs[h], w.clubs[a]), "pending": bool(w.pending),
+        "derby": derby_json(w, a if h == w.club_id else h),
         **life_json(w),
     }
 
@@ -537,7 +541,7 @@ def match_result_json(w, res: dict) -> dict:
             ratings.append({"name": p.name, "pos": p.pos, "role": p.role, "rating": r, "goals": res["goals_by"].get(pid, 0)})
     ratings.sort(key=lambda x: -x["rating"])
     motm = w.players.get(int(res["motm"])) if res.get("motm") is not None else None
-    return {"home": club_json(w, w.clubs[res["home"]]), "away": club_json(w, w.clubs[res["away"]]),
+    return {"derby": res.get("derby"), "home": club_json(w, w.clubs[res["home"]]), "away": club_json(w, w.clubs[res["away"]]),
             "hg": res["hg"], "ag": res["ag"], "events": events, "possession": res["possession"],
             "shots": res["shots"], "onTarget": res["on_target"], "xg": res["xg"],
             "attendance": res.get("attendance", 0), "ratings": ratings,
@@ -547,6 +551,12 @@ def match_result_json(w, res: dict) -> dict:
             "pitch": pitch_json(w, w.clubs[res["home"]], w.clubs[res["away"]], res.get("xi") or [[], []], res["events"])}
 
 
+def derby_json(w, opp: int) -> dict | None:
+    from ..game import derby
+    dn = derby.name(w, w.club_id, opp)
+    return {"name": dn, **derby.record(w, opp)} if dn else None
+
+
 def records_json(w) -> dict:
     r = w.records
     top = lambda m: [{"name": k, "n": v} for k, v in sorted((m or {}).items(), key=lambda kv: -kv[1])[:5]]
@@ -554,7 +564,13 @@ def records_json(w) -> dict:
             "draws": r.get("draws", 0), "losses": r.get("losses", 0), "gf": r.get("gf", 0), "ga": r.get("ga", 0),
             "bigWin": r.get("big_win"), "bigLoss": r.get("big_loss"), "streak": r.get("streak", 0),
             "bestStreak": r.get("best_streak", 0), "scorers": top(r.get("scorers")), "apps": top(r.get("apps")),
-            "awards": w.awards, "trophies": w.trophies, "history": w.history[-10:]}
+            "awards": w.awards, "trophies": w.trophies, "history": w.history[-10:],
+            "derbies": [{"club": club_json(w, w.clubs[o]), **derby_json(w, o)} for o in _rivals(w)]}
+
+
+def _rivals(w) -> list:
+    from ..game import derby
+    return derby.rivals(w)
 
 
 def staff_json(w) -> dict:

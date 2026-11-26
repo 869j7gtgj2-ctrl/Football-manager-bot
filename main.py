@@ -46,6 +46,8 @@ async def main() -> None:
     async def notify(uid: int, text: str) -> None:
         await bot.send_message(uid, text, reply_markup=handlers.play_kb())
     svc.notify = notify
+    from kickoff import reminders
+    asyncio.create_task(reminders.loop(svc))
     await bot.set_my_commands([
         BotCommand(command="start", description="Грати"),
         BotCommand(command="top", description="Зала слави"),

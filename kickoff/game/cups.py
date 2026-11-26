@@ -253,6 +253,9 @@ def play_stage(w, key: str, rng: random.Random, user_res: dict | None = None) ->
         apply_result(w, res, rng)
         from .season import gate_income  # local import: season imports this module
         att, gate = gate_income(w, w.clubs[h], rng)
+        from .derby import name as derby_name
+        if derby_name(w, h, a):
+            gate = int(gate * 1.5)
         res["attendance"] = att
         w.clubs[h].budget += gate
         if h == w.club_id:

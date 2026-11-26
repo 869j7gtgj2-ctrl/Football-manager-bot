@@ -156,3 +156,18 @@ def test_haggling_listing_and_agents():
     for _ in range(10):
         generate_offers(w, rng)
     assert any(o.player_id == mine.id for o in w.offers) or w.pitches
+
+
+def test_streak_reminder():
+    import datetime as dt
+    from kickoff import reminders
+    from kickoff.meta import Profile
+    p = Profile(user_id=1)
+    p.daily_streak = 4
+    p.daily_date = (dt.date.today() - dt.timedelta(days=1)).isoformat()
+    evening = dt.datetime.now(reminders.KYIV).replace(hour=19, minute=0)
+    morning = evening.replace(hour=9)
+    assert "серія 4" in reminders.due(p, evening)
+    assert reminders.due(p, morning) is None
+    p.reminded = dt.date.today().isoformat()
+    assert reminders.due(p, evening) is None
